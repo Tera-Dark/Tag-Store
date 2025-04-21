@@ -1,0 +1,17 @@
+# Ignore build outputs
+dist
+
+# Ignore dependencies
+node_modules
+
+# Ignore lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Ignore IDE/editor directories
+.vscode
+.idea
+
+# Ignore environment variables
+.env* 
