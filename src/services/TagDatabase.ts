@@ -1,7 +1,7 @@
 // src/services/TagDatabase.ts
 
 import Dexie, { type Table } from 'dexie';
-import type { Category, Tag } from '../types/data';
+import type { Library, Category, Tag } from '../types/data';
 
 // Define the entity types, potentially identical to the main types for now
 export interface CategoryEntity extends Category {}
@@ -11,22 +11,29 @@ export interface TagEntity extends Tag {}
  * Dexie database class definition for TagStore.
  */
 export class TagDatabase extends Dexie {
-  // Declare tables (property names match store names)
-  categories!: Table<CategoryEntity, string>; // string is the type of the primary key (id)
-  tags!: Table<TagEntity, string>; // string is the type of the primary key (id)
+  // Declare tables with their types
+  libraries!: Table<Library, string>; // Added libraries table (ID is string UUID)
+  categories!: Table<Category, string>; // ID is string UUID
+  tags!: Table<Tag, string>;         // ID is string UUID
 
   constructor() {
-    super('TagStoreDB'); // Database name
+    super('TagDatabase'); // Database name
     this.version(1).stores({
-      // Schema definition for version 1
-      categories: 'id, name', // Primary key 'id', index 'name' for uniqueness checks/lookups
-      tags: 'id, categoryId, name', // Primary key 'id', index 'categoryId', index 'name'
-                                  // Compound index [categoryId, name] might be useful for uniqueness checks within a category
+      // Initial schema (kept for potential upgrades, but new structure is in v2)
+      categories: 'id, name', 
+      tags: 'id, categoryId, name, keyword',
     });
-    // Add more versions here if the schema evolves in the future
-    // this.version(2).stores({...}).upgrade(...) 
+    // Define version 2 with the new structure including libraries and libraryId
+    this.version(2).stores({
+        libraries: 'id, name', // Primary key: id, Index on: name (for uniqueness? maybe later)
+        categories: 'id, libraryId, name', // Primary key: id, Index on: libraryId, name
+        tags: 'id, libraryId, categoryId, name, keyword' // Primary key: id, Index on: libraryId, categoryId, name, keyword
+    });
+
+    // Could add upgrade logic here if migrating data from v1 to v2 was necessary
+    // this.version(2).upgrade(tx => { ... });
   }
 }
 
-// Create and export a singleton instance of the database
+// Create a singleton instance of the database
 export const db = new TagDatabase(); 

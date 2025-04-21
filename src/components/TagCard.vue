@@ -4,8 +4,8 @@ import { NCard, NTag, NSpace, NTooltip, NDropdown, NButton, NIcon, NCheckbox } f
 import type { DropdownOption } from 'naive-ui';
 import { useTagStore } from '../stores/tagStore';
 import type { Tag } from '../types/data';
-// Placeholder for icons
-// import { CreateOutline as EditIcon, TrashOutline as DeleteIcon, EllipsisVertical } from '@vicons/ionicons5';
+// Import icon
+import { EllipsisVertical as MoreIcon } from '@vicons/ionicons5';
 
 // --- Props ---
 const props = defineProps<{ 
@@ -68,9 +68,9 @@ const handleCheckboxUpdate = (checked: boolean) => {
             @click.stop="() => {} /* Prevent card click when clicking dropdown */"
            >
             <n-button text size="tiny" style="opacity: 0.6;" @click.stop="() => {} /* Also prevent click on button */">
-               <!-- Use actual icon later -->
-               <!-- <template #icon><n-icon><EllipsisVertical /></n-icon></template> -->
-                ...
+               <template #icon>
+                    <n-icon :component="MoreIcon" />
+               </template>
             </n-button>
         </n-dropdown>
     </template>

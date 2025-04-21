@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NGrid, NGi, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox } from 'naive-ui';
+import { NGrid, NGi, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, NIcon, NSpin } from 'naive-ui';
 import { useTagStore } from '../stores/tagStore';
 import TagCard from './TagCard.vue';
 import TagDialog from './dialogs/TagDialog.vue';
 import BatchMoveDialog from './dialogs/BatchMoveDialog.vue';
 import type { Tag } from '../types/data';
+import { AddOutline as AddIcon } from '@vicons/ionicons5';
 
 const tagStore = useTagStore();
 const message = useMessage();
 const dialog = useDialog();
 
-// Get filtered tags from the store
 const filteredTags = computed(() => tagStore.filteredTags);
+const isLoading = computed(() => tagStore.isLoading);
 
 // --- Selection State ---
 const selectedTagIds = ref<Set<string>>(new Set());
@@ -119,6 +120,9 @@ const handleDeleteTag = (tag: Tag) => {
   });
 };
 
+// --- Loading state for batch ops ---
+const isBatchProcessing = ref(false);
+
 // --- Batch Actions ---
 const handleBatchDelete = () => {
     if (!hasSelection.value) return;
@@ -129,12 +133,15 @@ const handleBatchDelete = () => {
         positiveText: '确认删除',
         negativeText: '取消',
         onPositiveClick: async () => {
+            isBatchProcessing.value = true; // Start loading
             try {
                 await tagStore.batchDeleteTags(idsToDelete);
                 message.success(`已删除 ${idsToDelete.length} 个标签`);
                 selectedTagIds.value.clear(); // Clear selection after successful delete
             } catch (error: any) {
                 message.error(`批量删除失败: ${error.message}`);
+            } finally {
+                isBatchProcessing.value = false; // Stop loading
             }
         },
     });
@@ -153,12 +160,15 @@ const handleBatchMoveSubmit = async (targetCategoryId: string) => {
     if (idsToMove.length === 0) return;
 
     showBatchMoveDialog.value = false;
+    isBatchProcessing.value = true; // Start loading
     try {
         await tagStore.batchMoveTags(idsToMove, targetCategoryId);
         message.success(`已将 ${idsToMove.length} 个标签移动到目标分类`);
         selectedTagIds.value.clear();
     } catch (error: any) {
         message.error(`批量移动失败: ${error.message}`);
+    } finally {
+        isBatchProcessing.value = false; // Stop loading
     }
 };
 
@@ -179,38 +189,57 @@ const handleBatchMoveSubmit = async (targetCategoryId: string) => {
              >
                 全选
             </n-checkbox>
-            <n-button type="error" ghost :disabled="!hasSelection" @click="handleBatchDelete">
+            <n-button 
+                type="error" 
+                ghost 
+                :disabled="!hasSelection || isBatchProcessing" 
+                :loading="isBatchProcessing" 
+                @click="handleBatchDelete"
+             >
                 批量删除 ({{ selectedTagIds.size }})
             </n-button>
-            <n-button :disabled="!hasSelection" @click="handleBatchMove">
+            <n-button 
+                :disabled="!hasSelection || isBatchProcessing" 
+                :loading="isBatchProcessing" 
+                @click="handleBatchMove"
+             >
                 批量移动 ({{ selectedTagIds.size }})
             </n-button>
         </n-space>
         
         <!-- Right side: Add Tag button -->
         <n-button type="primary" @click="handleOpenAddDialog">
+             <template #icon>
+                <n-icon :component="AddIcon" />
+             </template>
             添加标签
         </n-button>
      </n-space>
 
-    <n-empty v-if="filteredTags.length === 0" description="没有找到标签" style="margin-top: 40px;">
-      <template #extra>
-        <n-button size="small" @click="handleOpenAddDialog">创建第一个标签</n-button>
-      </template>
-    </n-empty>
-
-    <n-grid v-else :x-gap="12" :y-gap="12" cols="1 s:2 m:3 l:4 xl:5 2xl:6" responsive="screen">
-      <n-gi v-for="tag in filteredTags" :key="tag.id">
-        <TagCard 
-           :tag="tag" 
-           :selected="selectedTagIds.has(tag.id)" 
-           @selection-change="handleSelectionChange" 
-           @edit="handleOpenEditDialog(tag)" 
-           @delete="handleDeleteTag(tag)" 
-         />
-      
-      </n-gi>
-    </n-grid>
+    <!-- Wrap Grid/Empty state in NSpin -->
+    <n-spin :show="isLoading">
+        <n-empty v-if="!isLoading && filteredTags.length === 0" description="没有找到标签" style="margin-top: 40px;">
+          <template #extra>
+            <n-button size="small" @click="handleOpenAddDialog">创建第一个标签</n-button>
+          </template>
+        </n-empty>
+    
+        <n-grid v-if="!isLoading && filteredTags.length > 0" :x-gap="12" :y-gap="12" cols="1 s:2 m:3 l:4 xl:5 2xl:6" responsive="screen">
+          <n-gi v-for="tag in filteredTags" :key="tag.id">
+            <TagCard 
+               :tag="tag" 
+               :selected="selectedTagIds.has(tag.id)" 
+               @selection-change="handleSelectionChange" 
+               @edit="handleOpenEditDialog(tag)" 
+               @delete="handleDeleteTag(tag)" 
+             />
+          </n-gi>
+        </n-grid>
+        <!-- Optional: Placeholder or slightly different view while loading -->
+         <div v-if="isLoading" style="min-height: 200px; display: flex; align-items: center; justify-content: center;">
+           <!-- The spinner overlay will cover this, but it provides height -->
+         </div>
+    </n-spin>
 
      <!-- Tag Add/Edit Dialog -->
     <TagDialog

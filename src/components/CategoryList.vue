@@ -2,12 +2,17 @@
 import { h, ref, computed, defineProps } from 'vue';
 import type { VNodeChild } from 'vue';
 import { useTagStore } from '../stores/tagStore';
-import { NMenu, NIcon, NButton, NDropdown, useMessage, useDialog } from 'naive-ui';
+import { NMenu, NIcon, NButton, NDropdown, useMessage, useDialog, NSpace } from 'naive-ui';
 import type { MenuOption, DropdownOption } from 'naive-ui';
 import CategoryDialog from './dialogs/CategoryDialog.vue';
 import type { Category } from '../types/data';
-// Placeholder for icons - Install @vicons/ionicons5 and uncomment if needed
-// import { ListOutline, AlbumsOutline, EllipsisVertical } from '@vicons/ionicons5';
+// Import icons
+import { 
+    ListOutline as ListIcon, 
+    AlbumsOutline as CategoryIcon, 
+    EllipsisVertical as MoreIcon,
+    AddOutline as AddIcon
+} from '@vicons/ionicons5';
 
 // Define props to receive collapsed state from parent
 const props = defineProps<{ collapsed: boolean }>();
@@ -21,19 +26,14 @@ const showDialog = ref(false);
 const dialogMode = ref<'add' | 'edit'>('add');
 const categoryToEdit = ref<Category | null>(null);
 
-// Placeholder icon rendering function
-// Replace this with actual icon rendering when a library is installed
-function renderIcon(iconName: string): () => VNodeChild {
-  return () => h(NIcon, null, { default: () => h('span', iconName.substring(0, 1)) }); // Simple fallback: use first letter
-  // Example with @vicons/ionicons5:
-  // if (iconName === 'ListOutline') return () => h(NIcon, null, { default: () => h(ListOutline) });
-  // if (iconName === 'AlbumsOutline') return () => h(NIcon, null, { default: () => h(AlbumsOutline) });
-  // return () => h(NIcon, null, { default: () => h(AlbumsOutline) }); // Default icon
+// Icon rendering function - now using imported icons
+function renderVIcon(icon: any): () => VNodeChild {
+  return () => h(NIcon, null, { default: () => h(icon) });
 }
 
 function renderMenuIcon(option: MenuOption) {
-  // Render the main icon
-  return option.icon ? option.icon() : h(NIcon, null, { default: () => h('span', ' ') });
+  // Use the icon component passed in the option or a default
+  return option.icon ? option.icon() : renderVIcon(CategoryIcon)(); 
 }
 
 function renderMenuLabel(option: MenuOption) {
@@ -44,7 +44,7 @@ function renderMenuLabel(option: MenuOption) {
       { label: '删除分类', key: 'delete', props: { style: 'color: red;' } },
     ];
     return h('div', { style: 'display: flex; justify-content: space-between; align-items: center; width: 100%;' }, [
-      h('span', option.label as string),
+      h('span', { style: 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' }, option.label as string),
       h(NDropdown, {
         trigger: 'click',
         options: dropdownOptions,
@@ -53,10 +53,14 @@ function renderMenuLabel(option: MenuOption) {
         onSelect: (key) => handleActionSelect(key as 'edit' | 'delete', option.key as string),
         style: 'margin-left: 8px;'
       }, {
-        default: () => h(NButton, { text: true, size: 'tiny', style: 'opacity: 0.6;' , onClick: (e) => e.stopPropagation() }, { 
-            // icon: () => h(NIcon, null, { default: () => h(EllipsisVertical) }) // Use actual icon later
-             default: () => h('span', '...') // Placeholder dots
-             })
+        default: () => h(NButton, { 
+            text: true, 
+            size: 'tiny', 
+            style: 'opacity: 0.6;' , 
+            onClick: (e) => e.stopPropagation() 
+          }, { 
+            icon: renderVIcon(MoreIcon) // Use More icon
+          })
       })
     ]);
   } else {
@@ -69,8 +73,8 @@ const menuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
     {
       label: '所有分类',
-      key: 'all', // Use a special key for "all"
-      icon: renderIcon('ListOutline'), // Placeholder icon name
+      key: 'all', 
+      icon: renderVIcon(ListIcon), // Use List icon
     },
   ];
 
@@ -78,8 +82,7 @@ const menuOptions = computed<MenuOption[]>(() => {
     options.push({
       label: category.name,
       key: category.id,
-      icon: renderIcon('AlbumsOutline'), // Placeholder icon name for categories
-      // TODO: Add edit/delete actions (e.g., via context menu on right-click, or dedicated buttons elsewhere)
+      icon: renderVIcon(CategoryIcon), // Use Category icon
     });
   });
 
@@ -170,6 +173,9 @@ const handleDialogSubmit = async (data: { mode: 'add' | 'edit'; formData: { name
       @click="handleOpenAddDialog" 
       style="margin: 12px; width: calc(100% - 24px);"
      >
+        <template #icon>
+            <n-icon :component="AddIcon" />
+        </template>
       添加分类
     </n-button>
      <n-button 
@@ -180,7 +186,9 @@ const handleDialogSubmit = async (data: { mode: 'add' | 'edit'; formData: { name
        style="margin: 12px auto; display: block;"
        title="添加分类"
        >
-         <!-- Placeholder Icon --> + 
+         <template #icon>
+            <n-icon :component="AddIcon" />
+         </template>
        </n-button>
 
     <n-menu

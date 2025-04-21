@@ -1,20 +1,23 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import type { Category, Tag, TagStoreTemplate } from '../types/data';
+import { ref, computed, watch } from 'vue';
+import type { Category, Tag, TagStoreTemplate, TemplateTagData, Library } from '../types/data';
 import * as StorageService from '../services/StorageService'; // Import our service
 import { db } from '../services/TagDatabase'; // Import db instance directly for transaction usage
+import { useLibraryStore } from './libraryStore'; // Import library store
 
 export const useTagStore = defineStore('tagStore', () => {
-  // --- State ---
+  // Inject Library Store
+  const libraryStore = useLibraryStore();
+
+  // --- State (Now specific to the active library) ---
   const categories = ref<Category[]>([]);
   const tags = ref<Tag[]>([]);
-  const isLoading = ref<boolean>(false);
+  const isLoading = ref<boolean>(false); // Loading state for tags/categories
   const currentError = ref<string | null>(null);
-  const currentLibraryInfo = ref<{ id: string; name: string } | null>(null); // Basic info about loaded lib
   const searchTerm = ref<string>('');
   const filterCategoryId = ref<string | null>(null); // null means show all categories
 
-  // --- Getters (Computed) ---
+  // --- Getters (Computed - Implicitly filtered by state which is library-specific) ---
   const allCategories = computed(() => categories.value);
   const allTags = computed(() => tags.value);
 
@@ -46,123 +49,149 @@ export const useTagStore = defineStore('tagStore', () => {
 
   // Get category name by ID (useful for display)
   const getCategoryNameById = computed(() => {
+    // Operates on the current library's categories
     return (id: string): string | undefined => {
       return categories.value.find((cat) => cat.id === id)?.name;
     };
   });
 
-  // --- Actions ---
+  // --- Actions (Now library-aware) ---
 
   // Helper to handle errors consistently
   const _handleError = (error: any, message: string) => {
     console.error(`${message}:`, error);
     currentError.value = error?.message || message;
-    throw error; // Re-throw for component-level handling if needed
+    // No throw here
   };
 
-  // Load initial data from IndexedDB or default template
+  // Initialize store FOR THE CURRENT ACTIVE LIBRARY
   const initializeStore = async () => {
+    const activeLibId = libraryStore.activeLibraryId;
+    if (!activeLibId) {
+      console.warn('initializeStore called with no active library.');
+      clearLocalState();
+      return;
+    }
+    console.log(`Initializing tag store for library: ${activeLibId}`);
     isLoading.value = true;
     currentError.value = null;
+    let isEmptyLibrary = false; // Flag to check if library is empty
     try {
-      let loadedCategories = await StorageService.getAllCategories();
-      let loadedTags = await StorageService.getAllTags();
-
-      // If DB is empty, try loading the default template
-      if (loadedCategories.length === 0 && loadedTags.length === 0) {
-        console.log('Local database is empty, attempting to load default template...');
-        try {
-          await loadTemplateFromJson('/templates/default.json', false); // Load default, don't clear existing (already empty)
-          // Re-fetch after loading default
-          loadedCategories = await StorageService.getAllCategories();
-          loadedTags = await StorageService.getAllTags();
-        } catch (loadError) {
-          _handleError(loadError, 'Failed to load default template');
-          // Proceed with empty state if default loading fails
-        }
-      }
-
+      // Fetch data for the specific library
+      const [loadedCategories, loadedTags] = await Promise.all([
+        StorageService.getAllCategories(activeLibId),
+        StorageService.getAllTags(activeLibId)
+      ]);
       categories.value = loadedCategories;
       tags.value = loadedTags;
-      categories.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted after load
-      // TODO: Set currentLibraryInfo
+
+      // Sorting is already done in StorageService for categories
     } catch (error) {
-      _handleError(error, 'Failed to initialize tag store');
-      categories.value = [];
-      tags.value = [];
+      _handleError(error, `Failed to initialize tag store for library ${activeLibId}`);
+      clearLocalState();
     } finally {
       isLoading.value = false;
     }
   };
 
-   // Load and process data from a JSON template URL
-  const loadTemplateFromJson = async (url: string, clearExisting: boolean = true) => {
+   // Load default template - This might need rethinking. 
+   // Should it load into the *current* library? Or only if DB is totally empty?
+   // Let's make it load into the current library if it's empty.
+  const loadDefaultTemplateIfEmpty = async () => {
+      const activeLibId = libraryStore.activeLibraryId;
+      if (!activeLibId) return;
+
+      // Check if the *current* library is empty
+       if (categories.value.length === 0 && tags.value.length === 0) {
+            console.log(`Library ${activeLibId} is empty, attempting to load default template...`);
+            try {
+                const response = await fetch('/templates/default.json');
+                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const templateData: TagStoreTemplate = await response.json();
+                // Import into the current library, merging (shouldn't conflict if empty)
+                await importData(templateData, false); 
+            } catch (loadError) {
+                 _handleError(loadError, '加载默认模板失败');
+            }
+       }
+  };
+
+  // --- Import Action (Imports into the *active* library) ---
+  const importData = async (templateData: TagStoreTemplate, clearExisting: boolean) => {
+    const activeLibId = libraryStore.activeLibraryId;
+    if (!activeLibId) {
+       _handleError(new Error("No active library selected"), "Import failed");
+       return;
+    }
+    // Optional: Check if templateData.library.name matches active library name?
+
     isLoading.value = true;
     currentError.value = null;
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch template: ${response.statusText}`);
-      }
-      const templateData: TagStoreTemplate = await response.json();
-
-      // --- Processing --- 
       const categoriesToAdd: Category[] = [];
-      const categoryNameMap = new Map<string, string>(); // Map name to new ID
-      const existingCategoriesLower = new Map(categories.value.map(c => [c.name.toLowerCase(), c]));
+      const categoryNameMap = new Map<string, string>();
+      
+      // Get existing data for the *active* library if merging
+      const existingCategories = clearExisting ? [] : await StorageService.getAllCategories(activeLibId);
+      const existingTags = clearExisting ? [] : await StorageService.getAllTags(activeLibId);
+      const existingCategoriesLower = new Map(existingCategories.map(c => [c.name.toLowerCase(), c]));
+      const existingTagsMap = new Map(existingTags.map(t => [`${t.categoryId}-${t.name.toLowerCase()}`, t]));
 
       // 1. Process categories
-      for (const cat of templateData.categories) {
-        const existing = existingCategoriesLower.get(cat.name.toLowerCase());
-        if (!existing || !clearExisting) { // Only add if not exists or not clearing
+      for (const catData of templateData.categories) {
+        const existing = existingCategoriesLower.get(catData.name.toLowerCase());
+        if (!existing) {
             const id = crypto.randomUUID();
-            categoriesToAdd.push({ ...cat, id });
-            categoryNameMap.set(cat.name, id);
-        } else {
-            categoryNameMap.set(existing.name, existing.id); // Use existing ID
+            // Add libraryId when creating the object for the DB
+            const newCategory: Category = { ...catData, id, libraryId: activeLibId }; 
+            categoriesToAdd.push(newCategory);
+            categoryNameMap.set(catData.name, id); 
+        } else if (!clearExisting) {
+            categoryNameMap.set(existing.name, existing.id); 
+        } else { // Replacing
+             const id = crypto.randomUUID();
+             // Add libraryId here too
+             const newCategory: Category = { ...catData, id, libraryId: activeLibId }; 
+             categoriesToAdd.push(newCategory);
+             categoryNameMap.set(catData.name, id); 
         }
       }
 
       // 2. Process tags
       const tagsToAdd: Tag[] = [];
-      const existingTags = new Map(tags.value.map(t => [`${t.categoryId}-${t.name.toLowerCase()}`, t]));
-
       for (const tagData of templateData.tags) {
-          // Destructure to help TS infer types and access properties correctly
-          const { categoryName, name, subtitles, keyword, ...rest } = tagData;
+          const { categoryName, name, subtitles, keyword, weight, color } = tagData;
           const categoryId = categoryNameMap.get(categoryName);
 
-          if (categoryId && name) { // Also check if name exists
+          if (categoryId && name) {
               const tagKey = `${categoryId}-${name.toLowerCase()}`;
               const alreadyExistsInBatch = tagsToAdd.some(t => t.categoryId === categoryId && t.name.toLowerCase() === name.toLowerCase());
-              const alreadyExistsInStore = !clearExisting && existingTags.has(tagKey);
+              const alreadyExistsInStore = !clearExisting && existingTagsMap.has(tagKey);
               
               if (!alreadyExistsInBatch && !alreadyExistsInStore) {
                    const id = crypto.randomUUID();
-                   // Construct the full Tag object
+                   const cleanedSubtitles = Array.isArray(subtitles) ? subtitles.filter(s => typeof s === 'string') : undefined;
+                   // Add libraryId when creating the object
                    const newTag: Tag = {
                        id,
+                       libraryId: activeLibId, // Add libraryId
                        categoryId,
                        name,
-                       subtitles,
-                       keyword,
-                       ...rest // Include any other properties like weight, color if they exist
+                       subtitles: cleanedSubtitles,
+                       keyword: typeof keyword === 'string' ? keyword : undefined,
+                       weight: typeof weight === 'number' ? weight : undefined,
+                       color: typeof color === 'string' ? color : undefined,
                    };
                    tagsToAdd.push(newTag);
-              } else {
-                  console.warn(`Skipping duplicate tag "${name}" in category "${categoryName}" during import.`);
               }
-          } else if (!categoryId) {
-              console.warn(`Category "${categoryName}" not found for tag "${name || '[Unnamed Tag]'}". Skipping tag.`);
-          } else {
-              console.warn(`Skipping tag without a name in category "${categoryName}".`);
           }
       }
 
-      // --- Persistence --- 
+      // --- Persistence ---
       await db.transaction('rw', db.categories, db.tags, async () => {
           if (clearExisting) {
-              await StorageService.clearAllData(); // Still use service for clear logic if preferred
+              // Clear only the active library's data
+              await StorageService.clearLibraryData(activeLibId); 
           }
           if (categoriesToAdd.length > 0) {
               await StorageService.bulkAddCategories(categoriesToAdd);
@@ -172,153 +201,163 @@ export const useTagStore = defineStore('tagStore', () => {
           }
       });
 
-      // --- Update State --- 
-      const [finalCategories, finalTags] = await Promise.all([
-          StorageService.getAllCategories(),
-          StorageService.getAllTags(),
-      ]);
-      categories.value = finalCategories;
-      tags.value = finalTags;
-      categories.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted
-      currentLibraryInfo.value = { id: url, name: templateData.metadata?.name || url };
+      // --- Update State by re-fetching for the active library ---
+      await initializeStore(); // Re-initialize to load fresh data
 
     } catch (error) {
-      _handleError(error, `Failed to load template from ${url}`);
+      _handleError(error, 'Failed to import data');
     } finally {
       isLoading.value = false;
     }
   };
 
-  // Add a new category
-  const addCategory = async (categoryData: Omit<Category, 'id'>) => {
+  // --- Export Action (Exports the *active* library) ---
+  const exportDataAsJson = async (): Promise<string> => {
+    const activeLibId = libraryStore.activeLibraryId;
+    const activeLib = libraryStore.activeLibrary;
+    if (!activeLibId || !activeLib) {
+         _handleError(new Error("No active library to export"), "Export failed");
+         throw new Error("No active library to export"); // Throw to stop download trigger
+    }
+
+    try {
+        const currentCategories = await StorageService.getAllCategories(activeLibId);
+        const currentTags = await StorageService.getAllTags(activeLibId);
+        const categoryMap = new Map(currentCategories.map(cat => [cat.id, cat]));
+
+        const exportData: TagStoreTemplate = {
+            library: { // Use new structure
+                name: activeLib.name,
+                exportedAt: new Date().toISOString(),
+            },
+            // Omit id AND libraryId for categories
+            categories: currentCategories.map(({ id, libraryId, ...rest }) => rest), 
+            tags: currentTags.map(tag => {
+                const category = categoryMap.get(tag.categoryId);
+                // Omit id and libraryId, add categoryName
+                const { id, libraryId, categoryId, ...rest } = tag; 
+                const templateTag: TemplateTagData = {
+                    ...rest,
+                    categoryName: category?.name || "Unknown Category",
+                };
+                return templateTag;
+            })
+        };
+        return JSON.stringify(exportData, null, 2);
+    } catch (error) {
+         _handleError(error, 'Failed to prepare data for export');
+         throw error; 
+    }
+  };
+
+  // --- CRUD Actions (Now operate on the active library) ---
+
+  const addCategory = async (categoryData: Omit<Category, 'id' | 'libraryId'>) => {
+    const activeLibId = libraryStore.activeLibraryId;
+    if (!activeLibId) return _handleError(new Error("No active library"), "Add Category failed");
     currentError.value = null;
     try {
-      const newId = await StorageService.addCategory(categoryData);
-      const newCategory = await StorageService.getCategoryById(newId);
-      if (newCategory) {
-        categories.value.push(newCategory);
-        categories.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted
-      }
+      // Pass libraryId to storage service
+      const newId = await StorageService.addCategory(categoryData, activeLibId);
+      // Re-fetch to update local state (or push manually)
+      await initializeStore(); 
       return newId;
-    } catch (error) {
-      _handleError(error, 'Failed to add category');
-    }
+    } catch (error) { _handleError(error, 'Failed to add category'); }
   };
 
-  // Update an existing category
-  const updateCategory = async (id: string, changes: Partial<Omit<Category, 'id'>>) => {
+  const updateCategory = async (id: string, changes: Partial<Omit<Category, 'id' | 'libraryId'>>) => {
+     // libraryId check might be needed if changes could include it, but our type prevents it.
     currentError.value = null;
     try {
-      await StorageService.updateCategory(id, changes);
-      const index = categories.value.findIndex((cat) => cat.id === id);
-      if (index !== -1) {
-        categories.value[index] = { ...categories.value[index], ...changes };
-        categories.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted
-      }
-    } catch (error) {
-        _handleError(error, 'Failed to update category');
-    }
+      await StorageService.updateCategory(id, changes); // ID is unique, no libraryId needed for update itself
+      await initializeStore(); 
+    } catch (error) { _handleError(error, 'Failed to update category'); }
   };
 
-  // Delete a category (and its tags)
   const deleteCategory = async (id: string) => {
     currentError.value = null;
     try {
-      await StorageService.deleteCategory(id);
-      categories.value = categories.value.filter((cat) => cat.id !== id);
-      tags.value = tags.value.filter((tag) => tag.categoryId !== id);
-    } catch (error) {
-       _handleError(error, 'Failed to delete category');
-    }
+      await StorageService.deleteCategory(id); // deleteCategory in service handles associated tags
+      await initializeStore(); 
+    } catch (error) { _handleError(error, 'Failed to delete category'); }
   };
 
-  // Add a new tag
-  const addTag = async (tagData: Omit<Tag, 'id'>) => {
+  const addTag = async (tagData: Omit<Tag, 'id' | 'libraryId'>) => {
+    const activeLibId = libraryStore.activeLibraryId;
+    if (!activeLibId) return _handleError(new Error("No active library"), "Add Tag failed");
+    // Ensure categoryId belongs to the active library (optional, but good practice)
+    if (tagData.categoryId && !categories.value.some(c => c.id === tagData.categoryId)){
+        return _handleError(new Error(`Category ID ${tagData.categoryId} not found in active library`), "Add Tag failed");
+    }
     currentError.value = null;
     try {
-      const newId = await StorageService.addTag(tagData);
-      const newTag = await StorageService.getTagById(newId);
-      if (newTag) {
-        tags.value.push(newTag);
-        // Keep tags sorted? Maybe by name within category? Requires more complex sorting.
-      }
+      const newId = await StorageService.addTag(tagData, activeLibId);
+      await initializeStore(); 
       return newId;
-    } catch (error) {
-        _handleError(error, 'Failed to add tag');
-    }
+    } catch (error) { _handleError(error, 'Failed to add tag'); }
   };
 
-  // Update an existing tag
-   const updateTag = async (id: string, changes: Partial<Omit<Tag, 'id'>>) => {
+  const updateTag = async (id: string, changes: Partial<Omit<Tag, 'id' | 'libraryId'>>) => {
+    // Ensure target categoryId (if changed) belongs to the active library
+     if (changes.categoryId && !categories.value.some(c => c.id === changes.categoryId)){
+        return _handleError(new Error(`Target Category ID ${changes.categoryId} not found in active library`), "Update Tag failed");
+    }
     currentError.value = null;
     try {
       await StorageService.updateTag(id, changes);
-      const index = tags.value.findIndex((t) => t.id === id);
-      if (index !== -1) {
-        tags.value[index] = { ...tags.value[index], ...changes };
-      }
-    } catch (error) {
-       _handleError(error, 'Failed to update tag');
-    }
+      await initializeStore();
+    } catch (error) { _handleError(error, 'Failed to update tag'); }
   };
 
-  // Delete a tag
   const deleteTag = async (id: string) => {
     currentError.value = null;
     try {
       await StorageService.deleteTag(id);
-      tags.value = tags.value.filter((tag) => tag.id !== id);
-    } catch (error) {
-        _handleError(error, 'Failed to delete tag');
-    }
+      await initializeStore();
+    } catch (error) { _handleError(error, 'Failed to delete tag'); }
   };
 
-  // Delete multiple tags
   const batchDeleteTags = async (ids: string[]) => {
       currentError.value = null;
       try {
           await StorageService.batchDeleteTags(ids);
-          tags.value = tags.value.filter((tag) => !ids.includes(tag.id));
-      } catch (error) {
-         _handleError(error, 'Failed to batch delete tags');
-      }
+          await initializeStore();
+      } catch (error) { _handleError(error, 'Failed to batch delete tags'); }
   };
 
-  // Move multiple tags to a different category
   const batchMoveTags = async (ids: string[], targetCategoryId: string) => {
+      // Ensure target category belongs to the active library
+       if (!categories.value.some(c => c.id === targetCategoryId)){
+          return _handleError(new Error(`Target Category ID ${targetCategoryId} not found in active library`), "Batch Move failed");
+      }
       currentError.value = null;
       try {
           await StorageService.batchMoveTags(ids, targetCategoryId);
-          tags.value.forEach((tag) => {
-              if (ids.includes(tag.id)) {
-                  tag.categoryId = targetCategoryId;
-              }
-          });
-      } catch (error) {
-         _handleError(error, 'Failed to batch move tags');
-      }
+          await initializeStore();
+      } catch (error) { _handleError(error, 'Failed to batch move tags'); }
   };
 
-  // Update search term
-  const updateSearchTerm = (term: string) => {
-    searchTerm.value = term;
+  // --- Other Actions ---
+  const updateSearchTerm = (term: string) => { searchTerm.value = term; };
+  const setFilterCategory = (categoryId: string | null) => { filterCategoryId.value = categoryId; };
+
+  // Clear local state (used when switching to no library)
+  const clearLocalState = () => {
+      console.log("Clearing local tag store state...");
+      categories.value = [];
+      tags.value = [];
+      filterCategoryId.value = null;
+      searchTerm.value = '';
+      currentError.value = null;
   };
 
-  // Set category filter
-  const setFilterCategory = (categoryId: string | null) => {
-    filterCategoryId.value = categoryId;
-  };
-
-  // TODO: Add actions for updateCategory, updateTag, batch operations, import/export, etc.
-
-  // --- Return state, getters, and actions ---
+  // --- Return ---
   return {
     // State
     categories,
     tags,
     isLoading,
     currentError,
-    currentLibraryInfo,
     searchTerm,
     filterCategoryId,
     // Getters
@@ -328,7 +367,7 @@ export const useTagStore = defineStore('tagStore', () => {
     getCategoryNameById,
     // Actions
     initializeStore,
-    loadTemplateFromJson,
+    loadDefaultTemplateIfEmpty, // Renamed from loadTemplateFromJson for clarity
     addCategory,
     updateCategory,
     deleteCategory,
@@ -339,5 +378,8 @@ export const useTagStore = defineStore('tagStore', () => {
     batchMoveTags,
     updateSearchTerm,
     setFilterCategory,
+    exportDataAsJson, 
+    importData, 
+    clearLocalState, 
   };
 }); 
