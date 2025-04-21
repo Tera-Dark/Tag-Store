@@ -1,26 +1,51 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
 
-// Import the TagGrid component instead of HomeView
-import TagGrid from '../components/TagGrid.vue'; // Correct path to components
-import SettingsView from '../views/SettingsView.vue'; // Import Settings view
+// Import components/views
+import SettingsView from '../views/SettingsView.vue'; 
+import ToolboxView from '../views/ToolboxView.vue'; 
+import TagManagementView from '../views/TagManagementView.vue'; 
+import AboutView from '../views/AboutView.vue'; // Import About view
+import DashboardView from '../views/DashboardView.vue'; // Import Dashboard view
+// Import the new tool view
+import TagDrawerView from '../views/tools/TagDrawerView.vue';
 
 const routes: Array<RouteRecordRaw> = [
   {
-    path: '/',
-    name: 'Home', // Can keep the name or change to 'TagGrid' or similar
-    component: TagGrid, // Point to the TagGrid component
+    path: '/', // Root path now points to Dashboard
+    name: 'Dashboard',
+    component: DashboardView,
+  },
+  {
+    path: '/tags', // New path for Tag Management
+    name: 'TagManagement',
+    component: TagManagementView,
   },
   {
     path: '/settings',
     name: 'Settings',
-    component: SettingsView, // Route for settings
+    component: SettingsView, 
   },
-  // Add other routes here as needed
+  {
+    path: '/toolbox', 
+    name: 'Toolbox',
+    component: ToolboxView,
+  },
+  // 将工具页面改为顶级路由
+  {
+    path: '/toolbox/tag-drawer',
+    name: 'TagDrawerTool',
+    component: TagDrawerView,
+  },
+  {
+    path: '/about', // Add about route
+    name: 'About',
+    component: AboutView,
+  },
 ];
 
 const router = createRouter({
-  history: createWebHashHistory(), // Use hash history for GitHub Pages compatibility
+  history: createWebHashHistory(), 
   routes,
 });
 

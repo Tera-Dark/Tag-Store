@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { defineProps, computed, defineEmits } from 'vue';
-import { NCard, NTag, NSpace, NTooltip, NDropdown, NButton, NIcon, NCheckbox } from 'naive-ui';
+import { NCard, NTag, NSpace, NTooltip, NDropdown, NButton, NIcon, NCheckbox, NText, NEllipsis } from 'naive-ui';
 import type { DropdownOption } from 'naive-ui';
 import { useTagStore } from '../stores/tagStore';
 import type { Tag } from '../types/data';
-// Import icon
-import { EllipsisVertical as MoreIcon } from '@vicons/ionicons5';
+// Import icons
+import { EllipsisVertical as MoreIcon, PricetagOutline as KeywordIcon } from '@vicons/ionicons5';
 
 // --- Props ---
 const props = defineProps<{ 
@@ -29,10 +29,22 @@ const categoryName = computed(() => tagStore.getCategoryNameById(props.tag.categ
 // Format subtitles for display
 const displaySubtitles = computed(() => props.tag.subtitles?.join(' / ') || '');
 
+// 动态计算标签卡片的样式，包括边框颜色
+const cardStyle = computed(() => {
+  const style: Record<string, string> = {};
+  
+  // 如果标签有自定义颜色，添加左侧边框
+  if (props.tag.color) {
+    style.borderLeft = `3px solid ${props.tag.color}`;
+  }
+  
+  return style;
+});
+
 // --- Dropdown Actions ---
 const dropdownOptions: DropdownOption[] = [
   { label: '编辑标签', key: 'edit' },
-  { label: '删除标签', key: 'delete', props: { style: 'color: red;' } },
+  { label: '删除标签', key: 'delete', props: { style: 'color: var(--n-error-color);' } },
 ];
 
 const handleActionSelect = (key: 'edit' | 'delete') => {
@@ -51,12 +63,19 @@ const handleCheckboxUpdate = (checked: boolean) => {
 </script>
 
 <template>
-  <n-card :title="tag.name" size="small" hoverable class="tag-card" :class="{ 'is-selected': selected }">
+  <n-card 
+    :title="tag.name" 
+    size="small" 
+    hoverable 
+    class="tag-card" 
+    :class="{ 'is-selected': selected }"
+    :style="cardStyle"
+  >
     <n-checkbox 
         :checked="selected"
         @update:checked="handleCheckboxUpdate"
         class="selection-checkbox"
-        @click.stop="() => {} /* Prevent card click propagation */"
+        @click.stop="() => {}"
     />
 
     <template #header-extra>
@@ -65,9 +84,9 @@ const handleCheckboxUpdate = (checked: boolean) => {
             :options="dropdownOptions" 
             placement="bottom-end" 
             @select="handleActionSelect"
-            @click.stop="() => {} /* Prevent card click when clicking dropdown */"
-           >
-            <n-button text size="tiny" style="opacity: 0.6;" @click.stop="() => {} /* Also prevent click on button */">
+            @click.stop="() => {}"
+        >
+            <n-button text size="tiny" class="action-btn" @click.stop="() => {}">
                <template #icon>
                     <n-icon :component="MoreIcon" />
                </template>
@@ -75,64 +94,147 @@ const handleCheckboxUpdate = (checked: boolean) => {
         </n-dropdown>
     </template>
 
-    <!-- Display Subtitles -->
-    <n-text v-if="displaySubtitles" depth="3" style="font-size: 0.9em; margin-bottom: 8px; display: block;">
-        {{ displaySubtitles }}
-    </n-text>
+    <!-- 内容区域带有截断 -->
+    <div class="tag-content">
+        <!-- 子标题显示 -->
+        <div v-if="displaySubtitles" class="tag-subtitles">
+            <n-ellipsis :line-clamp="2" tooltip>
+                {{ displaySubtitles }}
+            </n-ellipsis>
+        </div>
 
-    <!-- Display Keyword with Tooltip -->
-     <n-tooltip v-if="tag.keyword" trigger="hover">
-        <template #trigger>
-            <n-tag type="info" size="small" :bordered="false" style="cursor: help;">
-                关键词
-            </n-tag>
-        </template>
-        {{ tag.keyword }}
-    </n-tooltip>
+        <!-- 关键词显示 -->
+        <div v-if="tag.keyword" class="tag-keyword">
+            <n-tooltip placement="top">
+                <template #trigger>
+                    <n-space :size="4" align="center">
+                        <n-icon :component="KeywordIcon" size="14" class="keyword-icon" />
+                        <n-ellipsis style="max-width: 100%;">
+                            {{ tag.keyword }}
+                        </n-ellipsis>
+                    </n-space>
+                </template>
+                {{ tag.keyword }}
+            </n-tooltip>
+        </div>
 
-    <!-- TODO: Add more tag details if needed (e.g., color, weight) -->
+        <!-- 权重显示 -->
+        <div v-if="tag.weight" class="tag-weight">
+            <n-text depth="3">权重: {{ tag.weight }}</n-text>
+        </div>
+    </div>
 
     <template #footer>
-        <n-tag type="default" size="small" :bordered="false">
-           {{ categoryName }}
-        </n-tag>
+        <n-space justify="space-between" align="center">
+            <n-tag type="default" size="small" class="category-tag">
+                {{ categoryName }}
+            </n-tag>
+            
+            <!-- 如果有其他元数据，可以在这里添加额外的标签 -->
+        </n-space>
     </template>
   </n-card>
 </template>
 
 <style scoped>
 .tag-card {
-  position: relative; /* Needed for absolute positioning */
-  transition: border-color 0.2s ease;
+  position: relative;
+  transition: all 0.2s ease-in-out;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.tag-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.09);
+  z-index: 1; /* 确保悬停时在上层 */
 }
 
 .tag-card.is-selected {
    border-color: var(--n-color-target);
-   /* Or use box-shadow or background */
-   /* background-color: rgba(var(--n-color-target-rgb), 0.1); */
+   background-color: rgba(var(--n-primary-color-rgb), 0.05);
 }
 
+/* 修复选择框定位问题 */
 .selection-checkbox {
     position: absolute;
-    top: 8px; /* Adjust position as needed */
-    left: 8px;
-    z-index: 1; /* Ensure it's above other content if needed */
+    top: 10px;
+    left: 10px;
+    z-index: 2;
 }
 
-/* Adjust title padding if checkbox overlaps */
+/* 调整标题和内容区域的边距，避免与选择框重叠 */
 :deep(.n-card-header__main) {
-    padding-left: 28px; /* Add padding to prevent title overlap */
+    padding-left: 28px;
+    font-weight: 500;
 }
 
-/* Adjust dropdown position if needed */
-.n-dropdown {
-    /* styles */
+.tag-content {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    overflow: hidden;
 }
 
-.n-card__footer {
-    padding-top: 8px !important; /* Adjust spacing */
+.tag-subtitles {
+    font-size: 0.9em;
+    color: var(--n-text-color-2);
+    line-height: 1.4;
 }
-.n-card__header {
-    padding-bottom: 8px !important; /* Adjust spacing */
+
+.tag-keyword {
+    font-size: 0.85em;
+    border-radius: 4px;
+    padding: 3px 0;
+    color: var(--n-text-color-3);
+}
+
+.keyword-icon {
+    color: var(--n-info-color);
+}
+
+.tag-weight {
+    font-size: 0.85em;
+}
+
+.category-tag {
+    font-size: 0.8em;
+    border-radius: 4px;
+    opacity: 0.8;
+}
+
+.action-btn {
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+}
+
+.action-btn:hover {
+    opacity: 1;
+}
+
+/* 调整卡片底部样式 */
+:deep(.n-card__footer) {
+    padding-top: 10px;
+    padding-bottom: 8px;
+    border-top: 1px dashed rgba(0, 0, 0, 0.06);
+}
+
+/* 暗色主题适配 */
+:global(.n-theme-dark) .tag-card.is-selected {
+    background-color: rgba(var(--n-primary-color-rgb), 0.15);
+}
+
+:global(.n-theme-dark) :deep(.n-card__footer) {
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+:global(.n-theme-dark) .tag-card:hover {
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
 }
 </style> 

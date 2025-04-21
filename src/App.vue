@@ -33,7 +33,7 @@ onMounted(async () => { // Make onMounted async
     }
   }
 
-  settingsStore.initializeSettings(); // Initialize settings (can run concurrently or after)
+  settingsStore.initializeSettings(); // Initialize settings AFTER stores are ready
 });
 
 // Theme configuration (example: start with light theme)
@@ -44,7 +44,7 @@ onMounted(async () => { // Make onMounted async
 </script>
 
 <template>
-  <n-config-provider :theme="settingsStore.naiveTheme">
+  <n-config-provider :theme="settingsStore.naiveTheme" :theme-overrides="settingsStore.naiveThemeOverrides">
     <n-loading-bar-provider>
       <n-message-provider>
         <n-notification-provider>

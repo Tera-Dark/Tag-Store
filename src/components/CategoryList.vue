@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, ref, computed, defineProps } from 'vue';
+import { h, ref, computed } from 'vue';
 import type { VNodeChild } from 'vue';
 import { useTagStore } from '../stores/tagStore';
 import { NMenu, NIcon, NButton, NDropdown, useMessage, useDialog, NSpace } from 'naive-ui';
@@ -10,20 +10,16 @@ import type { Category } from '../types/data';
 import { 
     ListOutline as ListIcon, 
     AlbumsOutline as CategoryIcon, 
-    EllipsisVertical as MoreIcon,
-    AddOutline as AddIcon
+    EllipsisVertical as MoreIcon
 } from '@vicons/ionicons5';
-
-// Define props to receive collapsed state from parent
-const props = defineProps<{ collapsed: boolean }>();
 
 const tagStore = useTagStore();
 const message = useMessage();
 const dialog = useDialog();
 
-// Dialog state
+// Dialog state for EDIT/DELETE 
 const showDialog = ref(false);
-const dialogMode = ref<'add' | 'edit'>('add');
+const dialogMode = ref<'add' | 'edit'>('edit'); // Default to edit as Add is external
 const categoryToEdit = ref<Category | null>(null);
 
 // Icon rendering function - now using imported icons
@@ -104,19 +100,11 @@ const handleUpdateValue = (key: string) => {
 const handleActionSelect = (action: 'edit' | 'delete', categoryId: string) => {
     const category = tagStore.allCategories.find(c => c.id === categoryId);
     if (!category) return;
-
     if (action === 'edit') {
         handleEditCategory(category);
     } else if (action === 'delete') {
         handleDeleteCategory(category);
     }
-};
-
-// Open Add Dialog
-const handleOpenAddDialog = () => {
-    dialogMode.value = 'add';
-    categoryToEdit.value = null;
-    showDialog.value = true;
 };
 
 // Open Edit Dialog
@@ -147,17 +135,13 @@ const handleDeleteCategory = (category: Category) => {
 // Handle Dialog Submission
 const handleDialogSubmit = async (data: { mode: 'add' | 'edit'; formData: { name: string }; categoryId?: string }) => {
   try {
-    if (data.mode === 'add') {
-      await tagStore.addCategory({ name: data.formData.name });
-      message.success('分类添加成功');
-    } else if (data.mode === 'edit' && data.categoryId) {
+    if (data.mode === 'edit' && data.categoryId) {
       await tagStore.updateCategory(data.categoryId, { name: data.formData.name });
       message.success('分类更新成功');
-    }
-    showDialog.value = false; // Close dialog on success
+    } 
+    showDialog.value = false; 
   } catch (error: any) {
     message.error(`操作失败: ${error.message}`);
-    // Keep dialog open on error for user to correct
   }
 };
 
@@ -165,47 +149,21 @@ const handleDialogSubmit = async (data: { mode: 'add' | 'edit'; formData: { name
 
 <template>
   <div class="category-menu-container">
-    <!-- Add button at the top -->
-    <n-button 
-      v-if="!props.collapsed" 
-      type="primary" 
-      block 
-      @click="handleOpenAddDialog" 
-      style="margin: 12px; width: calc(100% - 24px);"
-     >
-        <template #icon>
-            <n-icon :component="AddIcon" />
-        </template>
-      添加分类
-    </n-button>
-     <n-button 
-       v-else 
-       type="primary" 
-       circle 
-       @click="handleOpenAddDialog" 
-       style="margin: 12px auto; display: block;"
-       title="添加分类"
-       >
-         <template #icon>
-            <n-icon :component="AddIcon" />
-         </template>
-       </n-button>
-
     <n-menu
       :options="menuOptions"
-      :collapsed="props.collapsed"
-      :collapsed-width="64"
+      :collapsed-width="64" 
       :collapsed-icon-size="22"
       :indent="18"
       :value="selectedKey"
       :render-label="renderMenuLabel" 
       :render-icon="renderMenuIcon"
       @update:value="handleUpdateValue"
-      style="flex-grow: 1; overflow: hidden;" 
+      style="flex-grow: 1; overflow-y: auto; overflow-x: hidden; border: none;" 
     />
   
-    <!-- Category Add/Edit Dialog -->
+    <!-- Category Dialog (Only for Edit/Delete initiated from this component) -->
     <CategoryDialog
+      v-if="dialogMode !== 'add'" 
       v-model:show="showDialog"
       :mode="dialogMode"
       :category-to-edit="categoryToEdit"
@@ -220,14 +178,5 @@ const handleDialogSubmit = async (data: { mode: 'add' | 'edit'; formData: { name
   height: 100%; 
   display: flex;
   flex-direction: column;
-  /* overflow: hidden; */ /* Remove this to allow menu scroll if needed */
-}
-
-/* Ensure menu takes available space and handles overflow */
-.n-menu {
-  /* height: 100%; Remove fixed height to allow scroll */
-   flex-grow: 1;
-   overflow-y: auto;
-   overflow-x: hidden;
 }
 </style> 
