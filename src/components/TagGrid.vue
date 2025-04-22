@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, useThemeVars } from 'naive-ui';
+import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox } from 'naive-ui';
 import { useTagStore } from '../stores/tagStore';
 import TagCard from './TagCard.vue';
 import TagDialog from './dialogs/TagDialog.vue';
@@ -10,7 +10,6 @@ import type { Tag } from '../types/data';
 const tagStore = useTagStore();
 const message = useMessage();
 const dialog = useDialog();
-const themeVars = useThemeVars();
 
 const filteredTags = computed(() => tagStore.filteredTags);
 const isLoading = computed(() => tagStore.isLoading);

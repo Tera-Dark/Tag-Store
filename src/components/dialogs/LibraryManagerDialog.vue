@@ -2,12 +2,14 @@
 import { ref, defineProps, defineEmits, watch, computed } from 'vue';
 import {
     NModal,
-    NCard,
+    NButton,
     NList,
     NListItem,
     NThing,
+    NText,
+    NDivider,
     NInput,
-    NButton,
+    NSpin,
     NIcon,
     NSpace,
     useMessage,

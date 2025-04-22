@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, defineProps, defineEmits, watch, nextTick, computed } from 'vue';
-import { NModal, NCard, NButton, NSpin, useMessage } from 'naive-ui';
+import { ref, watch, defineProps, defineEmits, computed } from 'vue';
+import { NModal, NButton, NSpin, useMessage } from 'naive-ui';
 import CategoryForm from '../forms/CategoryForm.vue';
 import type { Category } from '../../types/data';
 
@@ -27,7 +27,7 @@ const emit = defineEmits<{
 // --- Refs & State --- 
 const formRef = ref<InstanceType<typeof CategoryForm> | null>(null);
 const isProcessing = ref(false);
-const message = useMessage(); // For showing success/error messages
+const message = useMessage();
 
 // --- Computed --- 
 const title = computed(() => (props.mode === 'add' ? '添加新分类' : '编辑分类'));

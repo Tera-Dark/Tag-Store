@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, defineProps, defineEmits, watch } from 'vue';
-import { NModal, NCard, NButton, NSelect, NSpin, NText, useMessage } from 'naive-ui';
+import { NModal, NSelect, NButton, NSpin, useMessage } from 'naive-ui';
 import type { SelectOption } from 'naive-ui';
 import { useTagStore } from '../../stores/tagStore';
 import type { Category } from '../../types/data';

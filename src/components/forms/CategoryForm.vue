@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, defineProps, defineEmits } from 'vue';
 import { NForm, NFormItem, NInput } from 'naive-ui';
-import type { FormInst, FormRules, FormItemRule } from 'naive-ui';
+import type { FormInst, FormRules /*, FormItemRule*/ } from 'naive-ui';
 import type { Category } from '../../types/data';
 
 // --- Props --- 
@@ -11,12 +11,14 @@ interface Props {
 const props = defineProps<Props>();
 
 // --- Emits --- 
-const emit = defineEmits<{ (e: 'submit', formData: Omit<Category, 'id'>): void }>();
+// Removed unused emit declaration
+// const emit = defineEmits<{ (e: 'submit', formData: Omit<Category, 'id'>): void }>(); 
 
 // --- Form State & Rules --- 
 const formRef = ref<FormInst | null>(null);
 const formData = reactive<Omit<Category, 'id'>>({
-  name: ''
+  name: '',
+  libraryId: '' // Initialize with empty string to fix type error
   // Add other category fields here if needed (color, icon, keyword)
 });
 
