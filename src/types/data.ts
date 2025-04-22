@@ -59,4 +59,53 @@ export interface TagStoreTemplate {
   categories: Omit<Category, 'id' | 'libraryId'>[]; // Exclude libraryId as it's implicit
   // Tags belonging to this library (IDs will be generated on import)
   tags: TemplateTagData[]; 
+}
+
+/**
+ * Represents a tag with an explicit weight, often used in results.
+ */
+export interface WeightedTag extends Tag {
+  weight: number; // Explicit weight
+}
+
+/**
+ * Represents settings saved within a Tag Drawer preset.
+ */
+export interface PresetSettings {
+    numTags: number;
+    categoryIds: string[];
+    method: string;
+    exclusions: string;
+    multiCategory: boolean;
+    ensureBalance: boolean;
+}
+
+/**
+ * Represents a Tag Drawer preset.
+ */
+export interface Preset {
+    name: string;
+    settings: PresetSettings;
+}
+
+/**
+ * Represents settings captured for a Tag Drawer history entry.
+ */
+export interface HistorySettings {
+  numTags: number;
+  categories: string[]; // Store category names or IDs
+  method: string;
+  exclusions: string;
+  multiCategory: boolean;
+  ensureBalance: boolean;
+}
+
+/**
+ * Represents an entry in the Tag Drawer history.
+ */
+export interface DrawHistoryEntry {
+  id: number;
+  timestamp: string;
+  tags: Tag[]; // Using basic Tag, weight is usually handled separately or implied by method
+  settings: HistorySettings;
 } 

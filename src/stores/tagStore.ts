@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import { ref, computed, watch } from 'vue';
-import type { Category, Tag, TagStoreTemplate, TemplateTagData, Library } from '../types/data';
+import { ref, computed } from 'vue';
+import type { Category, Tag, TagStoreTemplate, TemplateTagData } from '../types/data';
 import * as StorageService from '../services/StorageService'; // Import our service
 import { db } from '../services/TagDatabase'; // Import db instance directly for transaction usage
 import { useLibraryStore } from './libraryStore'; // Import library store
@@ -75,7 +75,6 @@ export const useTagStore = defineStore('tagStore', () => {
     console.log(`Initializing tag store for library: ${activeLibId}`);
     isLoading.value = true;
     currentError.value = null;
-    let isEmptyLibrary = false; // Flag to check if library is empty
     try {
       // Fetch data for the specific library
       const [loadedCategories, loadedTags] = await Promise.all([

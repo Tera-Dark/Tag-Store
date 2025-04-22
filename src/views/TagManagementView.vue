@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import { NLayout, NLayoutSider, NLayoutContent, NSelect, NButton, NIcon, NSpace, useDialog, NTooltip, NInput } from 'naive-ui';
+import { ref, computed, watch, h, onMounted } from 'vue';
+import { NLayout, NLayoutSider, NLayoutContent, NSelect, NButton, NIcon, NSpace, NTooltip, NInput, useMessage } from 'naive-ui';
 import { 
   SettingsOutline as ManageIcon, 
   AddOutline as AddIcon, 
@@ -18,7 +18,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 const libraryStore = useLibraryStore();
 const tagStore = useTagStore();
 const settingsStore = useSettingsStore();
-const dialog = useDialog();
+const message = useMessage();
 
 // 搜索相关状态
 const searchValue = ref(tagStore.searchTerm);

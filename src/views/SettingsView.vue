@@ -11,14 +11,17 @@ import {
     NIcon,
     NUpload,
     useMessage,
-    useDialog
+    useDialog,
+    NInput,
+    NList,
+    NListItem
 } from 'naive-ui';
 import { useRouter } from 'vue-router';
 import { CloudUploadOutline as ImportIcon, CloudDownloadOutline as ExportIcon } from '@vicons/ionicons5';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTagStore } from '../stores/tagStore';
 import { useLibraryStore } from '../stores/libraryStore';
-import type { TagStoreTemplate, Library } from '../types/data';
+import type { TagStoreTemplate /* Library */ } from '../types/data'; // Restored TagStoreTemplate, Library remains removed
 
 const router = useRouter();
 const settingsStore = useSettingsStore();

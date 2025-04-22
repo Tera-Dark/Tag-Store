@@ -224,7 +224,7 @@ watch(currentSubtitleGroups, (newGroups) => {
 }, { immediate: true });
 
 // Select first category on initial load if none selected
-watch(selectedCategoryId, (newVal, oldVal) => {
+watch(selectedCategoryId, (newVal, _oldVal) => {
     if (newVal === undefined && categoryMenuOptions.value.length > 0) {
         selectedCategoryId.value = categoryMenuOptions.value[0].key;
     }

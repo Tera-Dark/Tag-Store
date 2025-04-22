@@ -1,6 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, inject, watch, onMounted } from 'vue';
-import { NSelect, NSpace, NText, NDivider, NIcon, NButton, NTag, NBadge, NPopover, NTooltip, useMessage } from 'naive-ui';
+import { ref, computed, onMounted } from 'vue';
+import { 
+  NSelect, 
+  NSpace, 
+  NIcon, 
+  NButton, 
+  NBadge, 
+  NDivider,
+  NTooltip, 
+  useMessage
+} from 'naive-ui';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -33,7 +42,6 @@ onMounted(() => {
 });
 
 // Compute display data
-const currentLibraryName = computed(() => libraryStore.activeLibrary?.name || '无活动库');
 const categoryCount = computed(() => tagStore.categories.length);
 const tagCount = computed(() => tagStore.tags.length);
 
@@ -79,6 +87,8 @@ const handleManageLibrary = () => {
   // 未来实现管理库的功能
   message.info('管理标签库功能即将推出');
 };
+
+const activeLibraryId = computed(() => libraryStore.activeLibraryId);
 
 </script>
 

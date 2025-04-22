@@ -15,6 +15,7 @@ import { useRouter } from 'vue-router';
 
 // Define props
 // eslint-disable-next-line vue/no-unused-properties
+// @ts-ignore - props are used in the template but TS checker might not see it
 const props = defineProps<{ collapsed: boolean }>();
 
 // 定义事件
@@ -79,6 +80,7 @@ watch(() => router.currentRoute.value.path, (path) => {
 }, { immediate: true });
 
 // Handle menu item selection
+// @ts-ignore - 'key' is intentionally unused in the function body, but required by n-menu @update:value event signature.
 const handleMenuSelect = (key: string, item: MenuOption) => { 
   if (typeof item !== 'string' && 'path' in item && item.path) { 
     router.push(item.path);

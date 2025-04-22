@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick, h } from 'vue';
 import { 
     NSelect, 
     NInputNumber, 
@@ -27,7 +27,15 @@ import {
     NBadge,
     useMessage,
     NModal,
-    NPopconfirm
+    NPopconfirm,
+    NInputGroup,
+    NPopover,
+    NEmpty,
+    NScrollbar,
+    NAlert,
+    NSlider,
+    NCollapse,
+    NCollapseItem
 } from 'naive-ui';
 import { 
     CopyOutline as CopyIcon,
@@ -45,17 +53,28 @@ import {
     SyncOutline as RedrawIcon,
     TrashOutline as DeleteIcon,
     CloudDownloadOutline as LoadPresetIcon,
-    CloudUploadOutline as SavePresetIcon
+    CloudUploadOutline as SavePresetIcon,
+    ChevronDownOutline as CollapseIconPreset,
+    ChevronForwardOutline as ExpandIconPreset,
+    CheckmarkCircleOutline as SuccessIcon,
+    CloseCircleOutline as ErrorIcon,
+    HelpCircleOutline as HelpIcon,
+    AddOutline as AddPresetIcon,
+    ColorPaletteOutline as ColorIcon,
+    ColorWandOutline as DrawIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
-import type { Category, Tag } from '../../types/data';
+import type { Tag, WeightedTag, Preset, DrawHistoryEntry, HistorySettings, PresetSettings /* Category */ } from '../../types/data';
 import { useRouter } from 'vue-router';
+import { useSettingsStore } from '../../stores/settingsStore';
+import TagGroupDisplay from '../../components/TagGroupDisplay.vue';
 
 const tagStore = useTagStore();
 const libraryStore = useLibraryStore();
 const message = useMessage();
 const router = useRouter();
+const settingsStore = useSettingsStore();
 
 // --- 基本组件状态 ---
 const selectedCategoryIds = ref<string[]>([]);
@@ -69,16 +88,6 @@ const ALL_CATEGORIES_KEY = '__ALL__';
 const lockedTagIds = ref<Set<string>>(new Set());
 
 // --- 抽取预设状态 ---
-interface PresetSettings {
-    numTags: number;
-    categoryIds: string[]; // Store IDs for robustness
-    method: string;
-    exclusions: string;
-    multiCategory: boolean;
-    ensureBalance: boolean;
-    // Add other relevant settings if needed in the future
-}
-
 interface DrawingPreset {
     name: string;
     settings: PresetSettings;
@@ -88,36 +97,21 @@ const presets = ref<DrawingPreset[]>([]);
 const selectedPresetName = ref<string | null>(null);
 const showSavePresetModal = ref<boolean>(false);
 const newPresetName = ref<string>('');
-const PRESETS_STORAGE_KEY = 'tagDrawerPresets'; // Key for local storage
+const PRESETS_STORAGE_KEY = 'tagDrawerPresets';
 
 // --- 高级功能状态 ---
 const useMultiCategoryMode = ref<boolean>(false);
 const ensureEachCategory = ref<boolean>(false);
 const noDuplicates = ref<boolean>(true);
-const drawMethod = ref<string>('random'); // 'random', 'weighted', 'leastUsed'
+const drawMethod = ref<string>('random');
 const saveHistory = ref<boolean>(true);
-const currentTab = ref<string>('basic'); // 'basic', 'advanced', 'history'
+const currentTab = ref<string>('basic');
 
 // --- 标签使用统计 ---
 const tagUsageCounts = ref<Record<string, number>>({});
 
-// Type definition for history item settings
-interface HistorySettings {
-  numTags: number;
-  categories: string[]; // Store IDs or names
-  method: string;
-  exclusions: string;
-  multiCategory: boolean;
-  ensureBalance: boolean;
-}
-
 // --- 历史记录 ---
-const historyItems = ref<Array<{
-  id: number;
-  timestamp: string;
-  tags: Tag[];
-  settings: HistorySettings; // Add settings field
-}>>([]);
+const historyItems = ref<DrawHistoryEntry[]>([]);
 
 // --- 动画控制 ---
 const showResults = ref(false);
@@ -144,15 +138,10 @@ const tagCount = computed(() => {
     return tagStore.tags.length;
 });
 
-const historyCount = computed(() => {
-    return historyItems.value.length;
-});
-
 const isMultiCategoryActive = computed(() => {
     return useMultiCategoryMode.value && selectedCategoryIds.value.length > 1;
 });
 
-// Computed property to check if redraw is possible
 const canRedraw = computed(() => {
     return drawnTags.value.length > 0 && lockedTagIds.value.size < drawnTags.value.length;
 });
@@ -456,7 +445,7 @@ const addToHistory = (tags: Tag[], isRedraw: boolean = false) => {
         ensureBalance: ensureEachCategory.value
     };
     
-    const historyItem = {
+    const historyItem: DrawHistoryEntry = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
         tags: [...tags],
@@ -718,6 +707,13 @@ const copyHistoryItemTags = (item: typeof historyItems.value[0]) => {
             message.error('复制失败');
         });
 };
+
+// Watch for changes in settings that affect drawing
+watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.weightSeparator], () => {
+    // Optionally trigger redraw or update display if needed
+    // Example: redrawTags(false); // Ensure redrawTags exists if uncommented
+}, { deep: true });
+
 </script>
 
 <template>

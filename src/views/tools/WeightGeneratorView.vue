@@ -16,14 +16,11 @@ import {
     NGrid,
     NGi,
     NTag,
-    NTooltip,
-    NSwitch,
     NCheckbox,
-    NInputGroup,
-    NRadioGroup,
-    NRadio,
-    NTabs,
-    NTabPane,
+    NCheckboxGroup,
+    NEmpty,
+    NScrollbar,
+    NAlert,
     NCollapse,
     NCollapseItem,
     NSlider,
@@ -43,12 +40,21 @@ import {
     DocumentTextOutline as TemplateIcon,
     TextOutline as TextIcon,
     ListOutline as ListIcon,
-    ShuffleOutline as RandomIcon
+    ShuffleOutline as RandomIcon,
+    ChevronDownOutline as CollapseIconPreset,
+    ChevronForwardOutline as ExpandIconPreset,
+    CheckmarkCircleOutline as SuccessIcon,
+    CloseCircleOutline as ErrorIcon,
+    HelpCircleOutline as HelpIcon,
+    TimeOutline as HistoryIcon,
+    SaveOutline as SavePresetIcon,
+    AddOutline as AddPresetIcon,
+    TrashOutline as DeletePresetIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import type { Tag } from '../../types/data';
+import type { Tag, Category, Preset, DrawHistoryEntry, WeightedTag } from '../../types/data';
 import { useRouter } from 'vue-router';
 
 // Define the constant locally
@@ -88,7 +94,7 @@ const extractionSettings = ref({
   trimWhitespace: true,    // 默认去除首尾空格
   removeEmpty: true,       // 默认移除空标签
   caseSensitiveMatch: false, // 默认不区分大小写匹配库
-  duplicateHandling: 'keepFirst' as 'keepFirst' | 'keepAll' // 默认去重（保留第一个）
+  duplicateHandling: 'keepFirst' as 'keepFirst' | 'keepAll' | 'mergeWeights' // 默认去重（保留第一个）
 });
 const showExtractionSettings = ref(false); // 控制高级设置显隐
 
@@ -488,7 +494,7 @@ const updateTagBracket = (tagId: string, value: BracketType) => {
 };
 
 // 应用括号类型到所有标签
-const applyBracketToAll = (bracketType: BracketType, additionalNesting?: number) => {
+const applyBracketToAll = (bracketType: BracketType, _additionalNesting?: number) => {
     if (selectedTags.value.length === 0) {
         message.warning('请先选择或输入标签');
         return;
