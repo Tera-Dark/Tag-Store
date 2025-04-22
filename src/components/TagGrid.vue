@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, NIcon, NDropdown, useThemeVars } from 'naive-ui';
+import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, useThemeVars } from 'naive-ui';
 import { useTagStore } from '../stores/tagStore';
 import TagCard from './TagCard.vue';
 import TagDialog from './dialogs/TagDialog.vue';
 import BatchMoveDialog from './dialogs/BatchMoveDialog.vue';
 import type { Tag } from '../types/data';
-import { AddOutline as AddIcon, CopyOutline as CopyIcon, EllipsisVertical as MoreIcon, DocumentTextOutline as ContentCopyIcon, KeyOutline as KeyIcon } from '@vicons/ionicons5';
 
 const tagStore = useTagStore();
 const message = useMessage();
@@ -15,7 +14,6 @@ const themeVars = useThemeVars();
 
 const filteredTags = computed(() => tagStore.filteredTags);
 const isLoading = computed(() => tagStore.isLoading);
-const getCategoryName = computed(() => tagStore.getCategoryNameById);
 
 // --- Selection State ---
 const selectedTagIds = ref<Set<string>>(new Set());
@@ -59,7 +57,7 @@ const handleSelectAllChange = (checked: boolean) => {
 watch(() => tagStore.filterCategoryId, () => {
     selectedTagIds.value.clear(); // Clear selection when category changes
 });
-watch(filteredTags, (newTags, oldTags) => {
+watch(filteredTags, () => {
     // Optional: More complex logic could try to preserve selection 
     // if the same tags are still present after search term change, but clearing is simpler.
     if (tagStore.searchTerm) { // Clear selection if search term is active causing filter changes
@@ -176,109 +174,6 @@ const handleBatchMoveSubmit = async (targetCategoryId: string) => {
         isBatchProcessing.value = false; // Stop loading
     }
 };
-
-// --- Tag Action Handlers ---
-
-// Copy Tag Content function
-const copyTagContent = (tag: Tag) => {
-  const parts = [tag.name];
-  if (tag.subtitles && tag.subtitles.length > 0) {
-    parts.push(...tag.subtitles);
-  }
-  if (tag.keyword) {
-    parts.push(tag.keyword);
-  }
-  const contentToCopy = parts.join(', '); // Join with comma and space
-
-  navigator.clipboard.writeText(contentToCopy)
-    .then(() => {
-      message.success('标签内容已复制!');
-    })
-    .catch(err => {
-      console.error('无法复制标签内容: ', err);
-      message.error('复制失败');
-    });
-};
-
-// Handle Dropdown Actions (Edit/Delete)
-const handleTagActionSelect = (action: 'edit' | 'delete', tag: Tag) => {
-    if (action === 'edit') {
-        handleOpenEditDialog(tag);
-    } else if (action === 'delete') {
-        handleDeleteTag(tag);
-    }
-};
-
-// Helper function to extract RGB from rgb/rgba string
-function extractRgb(colorString: string): string | null {
-    const match = colorString.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
-    return match ? `${match[1]}, ${match[2]}, ${match[3]}` : null;
-}
-
-// Helper function to adjust alpha channel of a hex color or rgb/rgba string
-function adjustColorAlpha(color: string, alpha: number): string {
-  if (color.startsWith('#')) { // Hex color
-      let r = 0, g = 0, b = 0;
-      if (color.length === 4) { // #rgb format
-        r = parseInt(color[1] + color[1], 16);
-        g = parseInt(color[2] + color[2], 16);
-        b = parseInt(color[3] + color[3], 16);
-      } else if (color.length === 7) { // #rrggbb format
-        r = parseInt(color[1] + color[2], 16);
-        g = parseInt(color[3] + color[4], 16);
-        b = parseInt(color[5] + color[6], 16);
-      } else {
-        console.warn(`Invalid hex color format: ${color}. Using fallback.`);
-        const fallbackRgb = extractRgb(themeVars.value.infoColor);
-        return fallbackRgb ? `rgba(${fallbackRgb}, ${alpha})` : `rgba(0, 0, 255, ${alpha})`; // Fallback blue
-      }
-      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  } else if (color.startsWith('rgb')) { // rgb or rgba color
-      const rgb = extractRgb(color);
-      if (rgb) {
-          return `rgba(${rgb}, ${alpha})`;
-      } else {
-          console.warn(`Invalid rgb/rgba color format: ${color}. Using fallback.`);
-          const fallbackRgb = extractRgb(themeVars.value.infoColor);
-          return fallbackRgb ? `rgba(${fallbackRgb}, ${alpha})` : `rgba(0, 0, 255, ${alpha})`; // Fallback blue
-      }
-  } else {
-       console.warn(`Unsupported color format: ${color}. Using fallback.`);
-       const fallbackRgb = extractRgb(themeVars.value.infoColor);
-       return fallbackRgb ? `rgba(${fallbackRgb}, ${alpha})` : `rgba(0, 0, 255, ${alpha})`; // Fallback blue
-  }
-}
-
-// Computed color object for category tag
-const getCategoryTagColor = (tag: Tag) => {
-  const baseColor = tag.color || themeVars.value.infoColor; // Use tag color or theme info color
-  const textColor = baseColor;
-  const borderColor = baseColor;
-  let backgroundColor: string;
-
-  try {
-      backgroundColor = adjustColorAlpha(baseColor, 0.15); // Apply alpha to the base color
-  } catch (e) {
-      console.error(`Error processing color ${baseColor}:`, e);
-      // Fallback if adjustColorAlpha fails
-      const fallbackRgb = extractRgb(themeVars.value.infoColor);
-      backgroundColor = fallbackRgb ? `rgba(${fallbackRgb}, 0.15)` : `rgba(0, 0, 255, 0.15)`;
-      // Use default text/border for fallback background
-      // textColor = themeVars.value.textColor2;
-      // borderColor = themeVars.value.borderColor;
-      // Or keep baseColor for text/border even on fallback background?
-      // Let's stick with baseColor for consistency unless background fails badly.
-  }
-
-  return {
-      color: backgroundColor,
-      textColor: textColor,
-      borderColor: borderColor
-  };
-
-};
-
-// TODO: Implement Select All / Deselect All functionality
 
 </script>
 

@@ -78,7 +78,7 @@ watch(() => router.currentRoute.value.path, (path) => {
 }, { immediate: true });
 
 // Handle menu item selection
-const handleMenuSelect = (item: MenuOption) => {
+const handleMenuSelect = (key: string, item: MenuOption) => {
   if (typeof item !== 'string' && 'path' in item && item.path) { 
     router.push(item.path);
   }
