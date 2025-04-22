@@ -5,6 +5,9 @@ import * as StorageService from '../services/StorageService'; // Import our serv
 import { db } from '../services/TagDatabase'; // Import db instance directly for transaction usage
 import { useLibraryStore } from './libraryStore'; // Import library store
 
+// 添加一个变量用于存储成功的模板URL，以便下次直接使用
+let successfulTemplateUrl: string | null = null;
+
 export const useTagStore = defineStore('tagStore', () => {
   // Inject Library Store
   const libraryStore = useLibraryStore();
@@ -108,17 +111,26 @@ export const useTagStore = defineStore('tagStore', () => {
                 const baseUrl = import.meta.env.BASE_URL;
                 const fullUrl = `${baseUrl}templates/default.json`;
                 console.log(`BASE_URL is: ${baseUrl}`);
-                console.log(`Attempting to fetch template from: ${fullUrl}`);
+                
+                // 如果之前有成功的URL，优先使用它
+                const initialUrl = successfulTemplateUrl || fullUrl;
+                console.log(`Attempting to fetch template from: ${initialUrl}`);
                 
                 // 尝试常规路径
                 let response: Response | null = null;
                 try {
-                    response = await fetch(fullUrl);
+                    response = await fetch(initialUrl);
                     console.log(`Fetch response status: ${response.status}`);
                     
                     // 如果失败，尝试不同的路径格式
                     if (!response.ok) {
                         throw new Error(`Initial fetch failed with status: ${response.status}`);
+                    }
+                    
+                    // 如果成功，并且不是从缓存的URL加载的，则保存这个URL
+                    if (initialUrl !== successfulTemplateUrl) {
+                        successfulTemplateUrl = initialUrl;
+                        console.log(`✅ 缓存成功的模板URL: ${initialUrl}`);
                     }
                 } catch (initialFetchError) {
                     console.warn("初始加载失败，尝试使用绝对路径:", initialFetchError);
@@ -144,6 +156,9 @@ export const useTagStore = defineStore('tagStore', () => {
                                 console.log(`✅ 成功从备用路径加载: ${url}`);
                                 response = altResponse;
                                 fetchSuccess = true;
+                                // 保存成功的URL以便下次使用
+                                successfulTemplateUrl = url;
+                                console.log(`✅ 缓存成功的模板URL: ${url}`);
                                 break;
                             } else {
                                 console.log(`❌ 备用路径失败 ${url}: ${altResponse.status}`);
