@@ -325,6 +325,8 @@ const removeTag = (index: number) => {
 const clearTags = () => {
     selectedTags.value = [];
     tagWeights.value = {};
+    tagBrackets.value = {};
+    bracketNesting.value = {};
     generatePrompt();
 };
 
@@ -348,30 +350,33 @@ const parseInputText = () => {
         const tags = inputText.value.split(/[,，]+/).filter(tag => tag.trim());
         
         // 转换为标签对象，并查找标签库
-        const newTags = tags.map((tagName, index) => {
-            // 在标签库中查找是否存在该标签
+        const potentialNewTags: Tag[] = tags.map((name, index) => {
+            const searchName = extractionSettings.value.caseSensitiveMatch ? name : name.toLowerCase();
+            // Match name AND libraryId when searching in tagStore
             const existingTag = tagStore.tags.find(t => 
-                t.name.toLowerCase() === tagName.trim().toLowerCase()
+                t.libraryId === libraryStore.activeLibraryId && 
+                (extractionSettings.value.caseSensitiveMatch ? t.name : t.name.toLowerCase()) === searchName
             );
             
-            // 如果找到，使用现有标签信息
             if (existingTag) {
+                return { ...existingTag }; // Return a copy from the store
+            } else {
+                // Create a new Tag object for items not found in the store
                 return {
-                    ...existingTag,
-                    isFromLibrary: true // 标记为来自标签库
+                    id: `parsed-${Date.now()}-${index}`,
+                    libraryId: libraryStore.activeLibraryId || '', // <-- Add active library ID HERE
+                    name: name, // Use original casing for name
+                    keyword: name, // Default keyword to name
+                    categoryId: '', 
+                    subtitles: [],
+                    weight: defaultWeight.value, 
+                    color: undefined,
+                    // isFromLibrary: false // This field is not part of the Tag type
                 };
             }
-            
-            // 否则创建新标签
-            return {
-                id: `custom-${Date.now()}-${index}`,
-                name: tagName.trim(),
-                keyword: '',
-                isFromLibrary: false
-            };
         });
         
-        customTagsHolder.value = newTags;
+        customTagsHolder.value = potentialNewTags;
         
         // 设置默认权重和括号
         customTagsHolder.value.forEach(tag => {
@@ -403,6 +408,7 @@ const resetAllTags = () => {
     selectedTags.value.forEach(tag => {
         tagWeights.value[tag.id] = 1.0; // 重置为默认权重1.0
         tagBrackets.value[tag.id] = 'none'; // 移除所有括号
+        bracketNesting.value[tag.id] = 0; // <-- Add reset for nesting
     });
     
     generatePrompt();
@@ -1183,8 +1189,8 @@ const reuseHistoryEntry = (text: string) => {
                     </div>
                     
                     <div v-if="selectedTags.length === 0" class="empty-placeholder">
-                      <div>尚未选择标签</div>
-                      <div class="empty-desc">从上方添加标签</div>
+                      <div>尚未添加标签</div>
+                      <div class="empty-desc">请从上方标签库选择或在文本框解析</div>
                     </div>
                   </div>
                 </template>
@@ -1252,9 +1258,9 @@ const reuseHistoryEntry = (text: string) => {
                         </n-thing>
                       </n-list-item>
                       <n-list-item v-if="selectedTags.length === 0">
-                        <n-thing title="尚未选择标签">
+                        <n-thing title="尚未添加标签">
                           <template #description>
-                            从上方添加标签
+                            请从上方标签库选择或在文本框解析
                           </template>
                         </n-thing>
                       </n-list-item>
