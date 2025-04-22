@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick, h } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { 
     NSelect, 
     NInputNumber,
@@ -17,44 +17,25 @@ import {
     NGi,
     NTag,
     NCheckbox,
-    NCheckboxGroup,
-    NEmpty,
-    NScrollbar,
-    NAlert,
     NCollapse,
     NCollapseItem,
     NSlider,
-    useMessage,
-    NSpin,
-    NDropdown
+    useMessage
 } from 'naive-ui';
 import { 
     CopyOutline as CopyIcon,
     AddOutline as AddIcon,
     ReloadOutline as ResetIcon,
     PricetagsOutline as TagIcon,
-    SettingsOutline as SettingsIcon,
     SaveOutline as SaveIcon,
     TrashOutline as ClearIcon,
     ScaleOutline as WeightIcon,
-    DocumentTextOutline as TemplateIcon,
-    TextOutline as TextIcon,
     ListOutline as ListIcon,
-    ShuffleOutline as RandomIcon,
-    ChevronDownOutline as CollapseIconPreset,
-    ChevronForwardOutline as ExpandIconPreset,
-    CheckmarkCircleOutline as SuccessIcon,
-    CloseCircleOutline as ErrorIcon,
-    HelpCircleOutline as HelpIcon,
-    TimeOutline as HistoryIcon,
-    SaveOutline as SavePresetIcon,
-    AddOutline as AddPresetIcon,
-    TrashOutline as DeletePresetIcon
+    ShuffleOutline as RandomIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
-import { useSettingsStore } from '../../stores/settingsStore';
-import type { Tag, Category, Preset, DrawHistoryEntry, WeightedTag } from '../../types/data';
+import type { Tag } from '../../types/data';
 import { useRouter } from 'vue-router';
 
 // Define the constant locally
@@ -71,7 +52,6 @@ type TemplateConfig = {
 
 const tagStore = useTagStore();
 const libraryStore = useLibraryStore();
-const settingsStore = useSettingsStore();
 const message = useMessage();
 const router = useRouter();
 
@@ -80,8 +60,6 @@ const selectedCategoryIds = ref<string[]>([ALL_CATEGORIES_KEY]);
 const searchTerm = ref<string>('');
 const selectedTags = ref<Tag[]>([]);
 const generatedPrompt = ref<string>('');
-const isLoading = ref<boolean>(false);
-const activeTab = ref<string>('select'); // 'select' 或 'text'
 const tagLayout = ref<'vertical' | 'grid'>('grid'); // 标签布局：垂直列表或网格
 
 // --- 文本输入模式 ---
@@ -129,7 +107,6 @@ const weightPresets = ref<{[key: string]: number}>({
     '隐含': 0.5
 });
 const tagWeights = ref<{[key: string]: number}>({});
-const promptTemplate = ref<string>('');
 const activeTemplate = ref<TemplateType>('sd');
 
 // --- 模板设置 ---
@@ -281,10 +258,6 @@ const filteredTags = computed(() => {
     tags = tags.filter(tag => !selectedTagIdsSet.has(tag.id));
     
     return tags;
-});
-
-const currentLibraryName = computed(() => {
-    return libraryStore.activeLibrary?.name || '无活动库';
 });
 
 const currentTemplate = computed(() => {
@@ -485,14 +458,6 @@ const applyRandomWeights = () => {
     message.success('已应用随机权重');
 };
 
-// 设置标签括号类型
-const updateTagBracket = (tagId: string, value: BracketType) => {
-    if (value !== null) {
-        tagBrackets.value[tagId] = value;
-        generatePrompt();
-    }
-};
-
 // 应用括号类型到所有标签
 const applyBracketToAll = (bracketType: BracketType, _additionalNesting?: number) => {
     if (selectedTags.value.length === 0) {
@@ -511,9 +476,6 @@ const applyBracketToAll = (bracketType: BracketType, _additionalNesting?: number
 
 // 增加或减少括号功能
 const toggleBracket = (tagId: string, bracketType: BracketType) => {
-    // 继承当前嵌套次数
-    const nestingCount = bracketNesting.value[tagId] || 0;
-    
     // 如果当前标签已经使用了该括号，则移除；否则设置为新括号
     if (tagBrackets.value[tagId] === bracketType) {
         tagBrackets.value[tagId] = 'none';
@@ -716,15 +678,6 @@ watch([activeTemplate], () => {
     generatePrompt();
 });
 
-// 获取当前选择的分类名称的方法
-const getCategoryName = () => {
-  if (!selectedCategoryIds.value.length) return '选择分类';
-  if (selectedCategoryIds.value.length === 1 && selectedCategoryIds.value[0] === ALL_CATEGORIES_KEY) return '所有分类';
-  
-  const categoryNames = tagStore.categories.filter(cat => selectedCategoryIds.value.includes(cat.id)).map(cat => cat.name);
-  return categoryNames.join(', ');
-};
-
 // 添加标签视图模式切换状态
 const tagsViewMode = ref<'grid' | 'list'>('grid');
 
@@ -741,55 +694,11 @@ const getTagNesting = (tagId: string): number => {
     return (typeof bracketNesting.value[tagId] === 'number') ? bracketNesting.value[tagId] : 0;
 };
 
-// 获取所有已选标签的第一个标签的嵌套次数，用于全局控制显示
-const getFirstTagNesting = (): number => {
-    if (selectedTags.value.length > 0) {
-        const firstTagId = selectedTags.value[0].id;
-        return getTagNesting(firstTagId);
-    }
-    return 0;
-};
-
 // 添加截断文本的工具函数
 const truncateText = (text: string, maxLength: number) => {
     if (!text) return '';
     if (text.length <= maxLength) return text;
     return text.slice(0, maxLength) + '...';
-};
-
-// 添加自定义渲染函数以确保分类名称完整显示
-const renderCategoryLabel = (option: any) => {
-  return h(
-    'div',
-    {
-      style: {
-        width: '100%',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        display: 'block',
-        padding: '4px 0'
-      }
-    },
-    option.label
-  );
-};
-
-const renderCategoryOption = (option: any) => {
-  return h(
-    'div',
-    {
-      style: {
-        width: '100%',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        display: 'block',
-        padding: '6px 0',
-      }
-    },
-    option.label
-  );
 };
 
 // 添加单独的全局嵌套计数变量，用于与单个标签嵌套分开
@@ -812,13 +721,6 @@ const decreaseGlobalNesting = () => {
 watch(() => tagStore.categories, (newCategories) => {
   console.log('Watcher: tagStore.categories changed:', newCategories);
 }, { deep: true });
-
-// 4. 添加复用历史记录的方法 (实现将在下一步)
-const reuseHistoryEntry = (text: string) => {
-    inputText.value = text;
-    parseInputText(); // 选择性地：复用后自动解析
-    message.success('已复用历史记录');
-};
 
 // Restore handleCategorySelect function definition
 const handleCategorySelect = (categoryIds: string[]) => {
@@ -1064,7 +966,7 @@ const handleCategorySelect = (categoryIds: string[]) => {
                   <span>快速应用:</span>
                   <n-space style="flex-wrap: wrap">
                     <n-button 
-                      v-for="(weight, preset) in weightPresets" 
+                      v-for="(_, preset) in weightPresets" 
                       :key="preset"
                       size="tiny"
                       @click="applyWeightPreset(preset)"
@@ -1471,7 +1373,7 @@ const handleCategorySelect = (categoryIds: string[]) => {
                 </n-space>
                 
                 <n-space vertical>
-                  <div v-for="(weight, preset) in weightPresets" :key="preset">
+                  <div v-for="(_, preset) in weightPresets" :key="preset">
                     <n-space align="center">
                       <span style="width: 60px;">{{ preset }}:</span>
                       <n-input-number

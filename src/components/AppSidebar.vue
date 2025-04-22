@@ -14,9 +14,7 @@ import {
 import { useRouter } from 'vue-router';
 
 // Define props
-// eslint-disable-next-line vue/no-unused-properties
-// @ts-ignore - props are used in the template but TS checker might not see it
-const props = defineProps<{ collapsed: boolean }>();
+defineProps<{ collapsed: boolean }>();
 
 // 定义事件
 const emit = defineEmits(['toggle-sidebar']);

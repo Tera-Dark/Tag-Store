@@ -88,8 +88,6 @@ const handleManageLibrary = () => {
   message.info('管理标签库功能即将推出');
 };
 
-const activeLibraryId = computed(() => libraryStore.activeLibraryId);
-
 </script>
 
 <template>

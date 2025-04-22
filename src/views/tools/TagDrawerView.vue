@@ -1,14 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick, h } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { 
     NSelect, 
     NInputNumber, 
     NInput, 
     NButton, 
     NSpace, 
-    NList, 
-    NListItem, 
-    NThing, 
     NIcon,
     NPageHeader,
     NDivider,
@@ -21,28 +18,17 @@ import {
     NCheckbox,
     NRadioGroup,
     NRadio,
-    NStatistic,
     NTabs,
     NTabPane,
-    NBadge,
     useMessage,
     NModal,
-    NPopconfirm,
-    NInputGroup,
-    NPopover,
-    NEmpty,
-    NScrollbar,
-    NAlert,
-    NSlider,
-    NCollapse,
-    NCollapseItem
+    NPopconfirm
 } from 'naive-ui';
 import { 
     CopyOutline as CopyIcon,
     ShuffleOutline as ShuffleIcon,
     ReloadOutline as ResetIcon,
     PricetagsOutline as TagIcon,
-    SettingsOutline as SettingsIcon,
     SaveOutline as SaveIcon,
     TimeOutline as HistoryIcon,
     FlashOutline as LeastUsedIcon,
@@ -52,23 +38,13 @@ import {
     LockOpenOutline as UnlockIcon,
     SyncOutline as RedrawIcon,
     TrashOutline as DeleteIcon,
-    CloudDownloadOutline as LoadPresetIcon,
-    CloudUploadOutline as SavePresetIcon,
-    ChevronDownOutline as CollapseIconPreset,
-    ChevronForwardOutline as ExpandIconPreset,
-    CheckmarkCircleOutline as SuccessIcon,
-    CloseCircleOutline as ErrorIcon,
-    HelpCircleOutline as HelpIcon,
-    AddOutline as AddPresetIcon,
-    ColorPaletteOutline as ColorIcon,
-    ColorWandOutline as DrawIcon
+    CloudUploadOutline as SavePresetIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
-import type { Tag, WeightedTag, Preset, DrawHistoryEntry, HistorySettings, PresetSettings /* Category */ } from '../../types/data';
+import type { Tag, DrawHistoryEntry, HistorySettings, PresetSettings } from '../../types/data';
 import { useRouter } from 'vue-router';
 import { useSettingsStore } from '../../stores/settingsStore';
-import TagGroupDisplay from '../../components/TagGroupDisplay.vue';
 
 const tagStore = useTagStore();
 const libraryStore = useLibraryStore();
@@ -405,7 +381,7 @@ const redrawUnlockedTags = async () => {
 
         // Add a new history entry for the redraw result
         if (saveHistory.value && drawnTags.value.length > 0) {
-            addToHistory(drawnTags.value, true); // Pass a flag indicating it's a redraw maybe?
+            addToHistory(drawnTags.value);
         }
 
     } catch (error) {
@@ -432,10 +408,11 @@ const updateTagUsage = (tags: Tag[]) => {
 };
 
 // Add to history
-const addToHistory = (tags: Tag[], isRedraw: boolean = false) => {
+const addToHistory = (tags: Tag[]) => {
     // Capture current settings
     const currentSettings: HistorySettings = {
         numTags: numTagsToDraw.value,
+        // If 'All Categories' was implicitly selected (empty array or contains ALL_KEY), save an empty array
         categories: selectedCategoryIds.value.includes(ALL_CATEGORIES_KEY) || selectedCategoryIds.value.length === 0 
                     ? ['所有分类'] 
                     : selectedCategoryIds.value.map(id => tagStore.categories.find(c => c.id === id)?.name || '未知分类'), // Store names for display
@@ -508,13 +485,6 @@ const increaseCount = () => {
 const decreaseCount = () => {
     if (numTagsToDraw.value > minTagsToDraw.value) {
         numTagsToDraw.value--;
-    }
-};
-
-const toggleMultiCategoryMode = () => {
-    useMultiCategoryMode.value = !useMultiCategoryMode.value;
-    if (!useMultiCategoryMode.value) {
-        selectedCategoryIds.value = [];
     }
 };
 
@@ -709,9 +679,10 @@ const copyHistoryItemTags = (item: typeof historyItems.value[0]) => {
 };
 
 // Watch for changes in settings that affect drawing
+// @ts-ignore - Suppressing error due to potential incomplete type inference for settingsStore.settings
 watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.weightSeparator], () => {
     // Optionally trigger redraw or update display if needed
-    // Example: redrawTags(false); // Ensure redrawTags exists if uncommented
+    // Example: redrawTags(false);
 }, { deep: true });
 
 </script>

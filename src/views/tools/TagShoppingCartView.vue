@@ -4,9 +4,6 @@ import {
     NPageHeader, 
     NTabs, 
     NTabPane, 
-    NGrid, 
-    NGi, 
-    NCard, 
     NInput, 
     NButton, 
     NIcon, 
@@ -21,9 +18,9 @@ import {
     NScrollbar,
     NEmpty
 } from 'naive-ui';
-import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, CloseOutline as CloseIcon, StarOutline as StarIconOutline, Star as StarIconFilled, AddCircleOutline as AddAllIcon, PricetagsOutline as CategoryIcon } from '@vicons/ionicons5';
+import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, StarOutline as StarIconOutline, Star as StarIconFilled, AddCircleOutline as AddAllIcon, PricetagsOutline as CategoryIcon } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
-import type { Category, Tag } from '../../types/data';
+import type { Tag } from '../../types/data';
 import { useRouter } from 'vue-router';
 
 const tagStore = useTagStore();
