@@ -11,7 +11,10 @@ import {
     NAvatar
 } from 'naive-ui';
 import { useRouter } from 'vue-router';
-import { ShuffleOutline as DrawerIcon } from '@vicons/ionicons5'; // Add new icon
+import { 
+    ShuffleOutline as DrawerIcon,
+    ScaleOutline as WeightIcon // 添加权重图标
+} from '@vicons/ionicons5';
 
 const router = useRouter();
 
@@ -32,6 +35,12 @@ const tools = [
         icon: DrawerIcon,
         path: '/toolbox/tag-drawer' // Add navigation path
     },
+    {
+        title: '权重添加器',
+        description: '生成带权重的AI绘图提示词，适用于Stable Diffusion等AI绘图工具',
+        icon: WeightIcon,
+        path: '/toolbox/weight-generator'
+    }
     // Add more tool objects here later if needed
 ];
 

@@ -25,7 +25,9 @@ import {
     NTabs,
     NTabPane,
     NBadge,
-    useMessage
+    useMessage,
+    NModal,
+    NPopconfirm
 } from 'naive-ui';
 import { 
     CopyOutline as CopyIcon,
@@ -36,7 +38,14 @@ import {
     SaveOutline as SaveIcon,
     TimeOutline as HistoryIcon,
     FlashOutline as LeastUsedIcon,
-    ScaleOutline as BalanceIcon
+    ScaleOutline as BalanceIcon,
+    TrendingUpOutline as MostUsedIcon,
+    LockClosedOutline as LockIcon,
+    LockOpenOutline as UnlockIcon,
+    SyncOutline as RedrawIcon,
+    TrashOutline as DeleteIcon,
+    CloudDownloadOutline as LoadPresetIcon,
+    CloudUploadOutline as SavePresetIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
@@ -57,6 +66,29 @@ const exclusionKeywords = ref<string>('');
 const drawnTags = ref<Tag[]>([]);
 const isDrawing = ref<boolean>(false);
 const ALL_CATEGORIES_KEY = '__ALL__';
+const lockedTagIds = ref<Set<string>>(new Set());
+
+// --- 抽取预设状态 ---
+interface PresetSettings {
+    numTags: number;
+    categoryIds: string[]; // Store IDs for robustness
+    method: string;
+    exclusions: string;
+    multiCategory: boolean;
+    ensureBalance: boolean;
+    // Add other relevant settings if needed in the future
+}
+
+interface DrawingPreset {
+    name: string;
+    settings: PresetSettings;
+}
+
+const presets = ref<DrawingPreset[]>([]);
+const selectedPresetName = ref<string | null>(null);
+const showSavePresetModal = ref<boolean>(false);
+const newPresetName = ref<string>('');
+const PRESETS_STORAGE_KEY = 'tagDrawerPresets'; // Key for local storage
 
 // --- 高级功能状态 ---
 const useMultiCategoryMode = ref<boolean>(false);
@@ -69,11 +101,22 @@ const currentTab = ref<string>('basic'); // 'basic', 'advanced', 'history'
 // --- 标签使用统计 ---
 const tagUsageCounts = ref<Record<string, number>>({});
 
+// Type definition for history item settings
+interface HistorySettings {
+  numTags: number;
+  categories: string[]; // Store IDs or names
+  method: string;
+  exclusions: string;
+  multiCategory: boolean;
+  ensureBalance: boolean;
+}
+
 // --- 历史记录 ---
 const historyItems = ref<Array<{
   id: number;
   timestamp: string;
   tags: Tag[];
+  settings: HistorySettings; // Add settings field
 }>>([]);
 
 // --- 动画控制 ---
@@ -109,7 +152,34 @@ const isMultiCategoryActive = computed(() => {
     return useMultiCategoryMode.value && selectedCategoryIds.value.length > 1;
 });
 
-// --- 本地存储功能 ---
+// Computed property to check if redraw is possible
+const canRedraw = computed(() => {
+    return drawnTags.value.length > 0 && lockedTagIds.value.size < drawnTags.value.length;
+});
+
+// Load presets from local storage
+const loadPresetsFromStorage = () => {
+    try {
+        const savedPresets = localStorage.getItem(PRESETS_STORAGE_KEY);
+        if (savedPresets) {
+            presets.value = JSON.parse(savedPresets);
+        }
+    } catch (error) {
+        console.error('加载预设失败:', error);
+        message.error('加载预设失败');
+    }
+};
+
+// Save presets to local storage
+const savePresetsToStorage = () => {
+    try {
+        localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets.value));
+    } catch (error) {
+        console.error('保存预设失败:', error);
+        message.error('保存预设失败');
+    }
+};
+
 const loadSettings = () => {
     try {
         const savedSettings = localStorage.getItem('tagDrawerSettings');
@@ -134,8 +204,9 @@ const loadSettings = () => {
         if (savedHistory) {
             historyItems.value = JSON.parse(savedHistory);
         }
+        loadPresetsFromStorage(); // Load presets as well
     } catch (error) {
-        console.error('加载设置失败:', error);
+        console.error('加载设置或预设失败:', error);
     }
 };
 
@@ -158,15 +229,43 @@ const saveSettings = () => {
 };
 
 // --- 方法 ---
+
+// Toggle tag lock state
+const toggleLock = (tagId: string) => {
+    if (lockedTagIds.value.has(tagId)) {
+        lockedTagIds.value.delete(tagId);
+    } else {
+        lockedTagIds.value.add(tagId);
+    }
+};
+
+// Function to perform the actual tag selection based on method and count
+const selectTags = (tags: Tag[], count: number): Tag[] => {
+    if (count <= 0) return [];
+    
+    let selected: Tag[] = [];
+    const available = [...tags]; // Work with a copy
+
+    if (drawMethod.value === 'leastUsed') {
+        const sorted = available.sort((a, b) => (tagUsageCounts.value[a.id] || 0) - (tagUsageCounts.value[b.id] || 0));
+        selected = sorted.slice(0, count);
+    } else if (drawMethod.value === 'mostUsed') {
+        const sorted = available.sort((a, b) => (tagUsageCounts.value[b.id] || 0) - (tagUsageCounts.value[a.id] || 0));
+        selected = sorted.slice(0, count);
+    } else { // 'random'
+        const shuffled = available.sort(() => 0.5 - Math.random());
+        selected = shuffled.slice(0, count);
+    }
+    return selected;
+};
+
 const drawTags = async () => {
     if (isDrawing.value) return;
     
     try {
         isDrawing.value = true;
         showResults.value = false;
-        
-        // 等待一小段时间以允许UI更新
-        await new Promise(resolve => setTimeout(resolve, 300));
+        lockedTagIds.value.clear(); // Clear locks on a full redraw
         
         let availableTags: Tag[] = [];
         const useAllCategories = selectedCategoryIds.value.includes(ALL_CATEGORIES_KEY) || 
@@ -195,60 +294,41 @@ const drawTags = async () => {
             return;
         }
 
-        // 确保分类平衡（如果启用）
+        // Ensure category balance (if enabled)
         if (ensureEachCategory.value && isMultiCategoryActive.value) {
             const result: Tag[] = [];
-            
-            // 确保每个分类至少有一个标签
+            const drawnInCategory = new Set<string>();
+
+            // First pass: ensure each category gets one tag if possible
             for (const categoryId of selectedCategoryIds.value) {
-                if (categoryId === ALL_CATEGORIES_KEY) continue;
+                if (categoryId === ALL_CATEGORIES_KEY || result.length >= numTagsToDraw.value) continue;
                 
-                const tagsInCategory = tagStore.tags.filter(t => t.categoryId === categoryId);
+                const tagsInCategory = availableTags.filter(t => t.categoryId === categoryId);
                 if (tagsInCategory.length > 0) {
-                    const shuffled = [...tagsInCategory].sort(() => 0.5 - Math.random());
-                    const selectedTag = shuffled[0];
-                    result.push(selectedTag);
+                     // Apply selection method within the category for the first pick
+                     const chosen = selectTags(tagsInCategory, 1);
+                     if(chosen.length > 0 && !drawnInCategory.has(chosen[0].id)) {
+                         result.push(chosen[0]);
+                         drawnInCategory.add(chosen[0].id);
+                     }
                 }
             }
-            
-            // 如果还需要更多标签
+
+            // Second pass: fill remaining slots
             const remainingCount = numTagsToDraw.value - result.length;
             if (remainingCount > 0) {
-                const selectedIds = new Set(result.map(t => t.id));
-                const remainingTags = availableTags.filter(t => !selectedIds.has(t.id));
-                
-                if (remainingTags.length > 0) {
-                    const shuffled = [...remainingTags].sort(() => 0.5 - Math.random());
-                    const additionalTags = shuffled.slice(0, remainingCount);
-                    result.push(...additionalTags);
-                }
+                const remainingAvailableTags = availableTags.filter(t => !drawnInCategory.has(t.id));
+                const additionalTags = selectTags(remainingAvailableTags, remainingCount);
+                result.push(...additionalTags);
             }
             
             drawnTags.value = result;
         } else {
-            // 标准抽取
-            let selectedTags: Tag[] = [];
-            
-            // 根据抽取方法选择标签
-            if (drawMethod.value === 'leastUsed') {
-                // 按使用次数排序（最少使用优先）
-                const sortedTags = [...availableTags].sort((a, b) => {
-                    const countA = tagUsageCounts.value[a.id] || 0;
-                    const countB = tagUsageCounts.value[b.id] || 0;
-                    return countA - countB;
-                });
-                
-                selectedTags = sortedTags.slice(0, numTagsToDraw.value);
-            } else {
-                // 随机抽取
-                const shuffledTags = availableTags.sort(() => 0.5 - Math.random());
-                selectedTags = shuffledTags.slice(0, numTagsToDraw.value);
-            }
-            
-            drawnTags.value = selectedTags;
+            // Standard draw without balance
+            drawnTags.value = selectTags(availableTags, numTagsToDraw.value);
         }
 
-        // 更新结果状态
+        // Update result state
         if (drawnTags.value.length < numTagsToDraw.value && drawnTags.value.length > 0) {
             message.info(`符合条件的标签不足 ${numTagsToDraw.value} 个，已抽取所有 ${drawnTags.value.length} 个。`);
         } else if (drawnTags.value.length === 0 && availableTags.length > 0) {
@@ -257,15 +337,15 @@ const drawTags = async () => {
             message.success(`成功抽取 ${drawnTags.value.length} 个标签`);
         }
         
-        // 更新使用统计
+        // Update usage statistics
         updateTagUsage(drawnTags.value);
         
-        // 保存到历史记录
+        // Save to history
         if (saveHistory.value && drawnTags.value.length > 0) {
             addToHistory(drawnTags.value);
         }
         
-        // 显示结果
+        // Show results
         showResults.value = true;
     } catch (error) {
         console.error('抽取标签时出错:', error);
@@ -275,7 +355,79 @@ const drawTags = async () => {
     }
 };
 
-// 更新标签使用次数
+// Redraw unlocked tags
+const redrawUnlockedTags = async () => {
+    if (isDrawing.value || !canRedraw.value) return;
+    
+    try {
+        isDrawing.value = true;
+        // Don't hide results immediately, maybe animate the change?
+
+        const lockedTags = drawnTags.value.filter(tag => lockedTagIds.value.has(tag.id));
+        const numToRedraw = numTagsToDraw.value - lockedTags.length;
+
+        if (numToRedraw <= 0) {
+             message.info('All tags are locked.');
+             return;
+        }
+
+        // Prepare available tags for redraw (similar logic to drawTags but exclude *all* currently drawn tags initially)
+        let baseAvailableTags: Tag[] = [];
+        const useAllCategories = selectedCategoryIds.value.includes(ALL_CATEGORIES_KEY) || selectedCategoryIds.value.length === 0;
+        if (useAllCategories) {
+            baseAvailableTags = [...tagStore.tags];
+        } else {
+            baseAvailableTags = tagStore.tags.filter(tag => selectedCategoryIds.value.includes(tag.categoryId));
+        }
+
+        // Apply exclusion keywords
+        const keywords = exclusionKeywords.value.split(',').map(k => k.trim().toLowerCase()).filter(k => k);
+        if (keywords.length > 0) {
+            baseAvailableTags = baseAvailableTags.filter(tag => 
+                !keywords.some(keyword => 
+                    tag.name.toLowerCase().includes(keyword) || 
+                    (tag.subtitles && tag.subtitles.some(sub => sub.toLowerCase().includes(keyword)))
+                )
+            );
+        }
+        
+        // Exclude *all* currently drawn tags (locked and unlocked) from the pool for redraw selection
+        const currentDrawnIds = new Set(drawnTags.value.map(t => t.id));
+        const availableForRedraw = baseAvailableTags.filter(tag => !currentDrawnIds.has(tag.id));
+
+        if (availableForRedraw.length === 0) {
+            message.warning('No more unique tags available to redraw with current filters.');
+            return;
+        }
+
+        // Select new tags using the current method
+        const newlyDrawnTags = selectTags(availableForRedraw, numToRedraw);
+
+        if (newlyDrawnTags.length < numToRedraw) {
+             message.info(`Could only redraw ${newlyDrawnTags.length} tags. Available pool limited.`);
+        }
+        
+        // Combine locked and newly drawn tags
+        // Ensure the order is somewhat preserved or logical (e.g., locked first)
+        drawnTags.value = [...lockedTags, ...newlyDrawnTags];
+
+        // Update usage counts ONLY for the newly drawn tags
+        updateTagUsage(newlyDrawnTags);
+
+        // Add a new history entry for the redraw result
+        if (saveHistory.value && drawnTags.value.length > 0) {
+            addToHistory(drawnTags.value, true); // Pass a flag indicating it's a redraw maybe?
+        }
+
+    } catch (error) {
+        console.error('Error redrawing tags:', error);
+        message.error('Failed to redraw tags');
+    } finally {
+        isDrawing.value = false;
+    }
+};
+
+// Update usage statistics
 const updateTagUsage = (tags: Tag[]) => {
     if (!tags.length) return;
     
@@ -290,28 +442,48 @@ const updateTagUsage = (tags: Tag[]) => {
     localStorage.setItem('tagUsageCounts', JSON.stringify(tagUsageCounts.value));
 };
 
-// 添加到历史记录
-const addToHistory = (tags: Tag[]) => {
+// Add to history
+const addToHistory = (tags: Tag[], isRedraw: boolean = false) => {
+    // Capture current settings
+    const currentSettings: HistorySettings = {
+        numTags: numTagsToDraw.value,
+        categories: selectedCategoryIds.value.includes(ALL_CATEGORIES_KEY) || selectedCategoryIds.value.length === 0 
+                    ? ['所有分类'] 
+                    : selectedCategoryIds.value.map(id => tagStore.categories.find(c => c.id === id)?.name || '未知分类'), // Store names for display
+        method: drawMethod.value,
+        exclusions: exclusionKeywords.value,
+        multiCategory: useMultiCategoryMode.value,
+        ensureBalance: ensureEachCategory.value
+    };
+    
     const historyItem = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
-        tags: [...tags]
+        tags: [...tags],
+        settings: currentSettings // Save captured settings
     };
-    
+
     historyItems.value.unshift(historyItem);
     
     // 限制历史记录数量
-    if (historyItems.value.length > 20) {
-        historyItems.value = historyItems.value.slice(0, 20);
+    if (historyItems.value.length > 20) { // Keep limit consistent
+        historyItems.value.pop(); // Use pop for better performance than slice
     }
     
     // 保存到本地存储
     localStorage.setItem('tagDrawerHistory', JSON.stringify(historyItems.value));
 };
 
-// 从历史记录中重新加载
-const reloadFromHistory = (item: { id: number; timestamp: string; tags: Tag[] }) => {
+// 从历史记录中重新加载 (Update type)
+const reloadFromHistory = (item: typeof historyItems.value[0]) => {
     drawnTags.value = [...item.tags];
+    // Optional: Restore settings as well?
+    // numTagsToDraw.value = item.settings.numTags;
+    // selectedCategoryIds.value = item.settings.categories; // Need to map names back to IDs if storing names
+    // drawMethod.value = item.settings.method;
+    // exclusionKeywords.value = item.settings.exclusions;
+    // useMultiCategoryMode.value = item.settings.multiCategory;
+    // ensureEachCategory.value = item.settings.ensureBalance;
     showResults.value = true;
     message.success('已从历史记录加载标签');
 };
@@ -419,6 +591,133 @@ watch(useMultiCategoryMode, (newValue) => {
         ensureEachCategory.value = false;
     }
 });
+
+// --- 计算属性 (补充) ---
+const presetOptions = computed(() => {
+    return presets.value.map(p => ({ label: p.name, value: p.name }));
+});
+
+// --- 预设管理方法 ---
+
+// Gather current settings into a preset structure
+const gatherCurrentSettingsForPreset = (): PresetSettings => {
+    // Ensure selectedCategoryIds doesn't include ALL_CATEGORIES_KEY when saving
+    const categoryIdsToSave = selectedCategoryIds.value.filter(id => id !== ALL_CATEGORIES_KEY);
+    return {
+        numTags: numTagsToDraw.value,
+        // If 'All Categories' was implicitly selected (empty array or contains ALL_KEY), save an empty array
+        categoryIds: categoryIdsToSave.length === 0 && selectedCategoryIds.value.length <= 1 ? [] : categoryIdsToSave,
+        method: drawMethod.value,
+        exclusions: exclusionKeywords.value,
+        multiCategory: useMultiCategoryMode.value,
+        ensureBalance: ensureEachCategory.value,
+    };
+};
+
+// Apply settings from a chosen preset
+const applyPreset = (presetName: string) => {
+    const preset = presets.value.find(p => p.name === presetName);
+    if (!preset) {
+        message.error(`未找到预设 "${presetName}"`);
+        selectedPresetName.value = null; // Deselect if not found
+        return;
+    }
+    
+    const settings = preset.settings;
+    numTagsToDraw.value = settings.numTags;
+    // If saved categoryIds is empty, it means 'All Categories' was intended
+    selectedCategoryIds.value = settings.categoryIds.length === 0 ? [ALL_CATEGORIES_KEY] : settings.categoryIds;
+    drawMethod.value = settings.method;
+    exclusionKeywords.value = settings.exclusions;
+    useMultiCategoryMode.value = settings.multiCategory;
+    ensureEachCategory.value = settings.ensureBalance;
+    
+    message.success(`已加载预设 "${presetName}"`);
+};
+
+// Handle the change event from the preset NSelect
+const handlePresetSelectionChange = (value: string | null) => {
+    if (value) {
+        applyPreset(value);
+    } else {
+        // Optional: Reset settings when preset is cleared?
+        // resetForm(); // Or just leave settings as they are
+        message.info('预设已取消选择');
+    }
+    // selectedPresetName is already updated by v-model
+};
+
+// Open the modal to save a new preset
+const openSavePresetModal = () => {
+    newPresetName.value = ''; // Clear previous input
+    showSavePresetModal.value = true;
+};
+
+// Confirm saving the preset from the modal
+const handleSavePresetConfirm = () => {
+    const name = newPresetName.value.trim();
+    if (!name) {
+        message.error('预设名称不能为空');
+        return; // Keep modal open
+    }
+
+    const existingPresetIndex = presets.value.findIndex(p => p.name === name);
+    const currentSettings = gatherCurrentSettingsForPreset();
+    
+    if (existingPresetIndex !== -1) {
+        // Preset exists, overwrite it
+        presets.value[existingPresetIndex].settings = currentSettings;
+        message.success(`预设 "${name}" 已更新`);
+    } else {
+        // Preset doesn't exist, add new one
+        presets.value.push({ name, settings: currentSettings });
+        presets.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted
+        message.success(`预设 "${name}" 已保存`);
+    }
+    
+    savePresetsToStorage();
+    selectedPresetName.value = name; // Select the newly saved/updated preset
+    showSavePresetModal.value = false; // Close modal
+};
+
+// Cancel saving from the modal
+const cancelSavePreset = () => {
+    showSavePresetModal.value = false;
+};
+
+// Delete the currently selected preset
+const deleteSelectedPreset = () => {
+    if (!selectedPresetName.value) {
+        message.warning('没有选择要删除的预设');
+        return;
+    }
+    
+    const nameToDelete = selectedPresetName.value;
+    presets.value = presets.value.filter(p => p.name !== nameToDelete);
+    savePresetsToStorage();
+    message.success(`预设 "${nameToDelete}" 已删除`);
+    selectedPresetName.value = null; // Deselect after deletion
+};
+
+// Copy tags from a specific history item
+const copyHistoryItemTags = (item: typeof historyItems.value[0]) => {
+    if (!item || !item.tags || item.tags.length === 0) {
+        message.warning('此历史记录没有标签可复制');
+        return;
+    }
+    
+    // Format as comma-separated names
+    const textToCopy = item.tags.map(tag => tag.name).join(', ');
+    
+    navigator.clipboard.writeText(textToCopy)
+        .then(() => {
+            message.success('已复制历史标签名称到剪贴板');
+        })
+        .catch(err => {
+            console.error('无法复制历史标签: ', err);
+            message.error('复制失败');
+        });
+};
 </script>
 
 <template>
@@ -450,6 +749,50 @@ watch(useMultiCategoryMode, (newValue) => {
           <n-gi>
             <n-card title="抽取设置" class="settings-card">
               <n-space vertical size="large">
+
+                <!-- 预设管理 -->
+                <div class="setting-group preset-management">
+                  <div class="setting-label">抽取预设</div>
+                  <n-space align="center">
+                    <n-select
+                      v-model:value="selectedPresetName"
+                      :options="presetOptions"
+                      placeholder="加载或管理预设"
+                      clearable
+                      @update:value="handlePresetSelectionChange" 
+                      style="flex-grow: 1; min-width: 150px;"
+                    />
+                    <n-tooltip trigger="hover">
+                      <template #trigger>
+                        <n-button @click="openSavePresetModal" circle secondary>
+                          <template #icon><n-icon :component="SavePresetIcon" /></template>
+                        </n-button>
+                      </template>
+                      保存当前设置为新预设
+                    </n-tooltip>
+                    <n-popconfirm
+                      v-if="selectedPresetName"
+                      @positive-click="deleteSelectedPreset"
+                      positive-text="确认删除"
+                      negative-text="取消"
+                    >
+                      <template #trigger>
+                         <n-tooltip trigger="hover">
+                            <template #trigger>
+                                <n-button type="error" circle secondary>
+                                <template #icon><n-icon :component="DeleteIcon" /></template>
+                                </n-button>
+                            </template>
+                            删除选中的预设
+                        </n-tooltip>
+                      </template>
+                      确认删除预设 "{{ selectedPresetName }}" 吗？此操作无法撤销。
+                    </n-popconfirm>
+                  </n-space>
+                </div>
+                <n-divider /> 
+                <!-- 预设管理结束 -->
+
                 <!-- 抽取数量控制 -->
                 <div class="setting-group">
                   <div class="setting-label">抽取数量</div>
@@ -555,6 +898,17 @@ watch(useMultiCategoryMode, (newValue) => {
                 <n-space v-if="drawnTags.length > 0">
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
+                      <n-button text @click="redrawUnlockedTags" size="small" :disabled="!canRedraw || isDrawing"> 
+                        <template #icon>
+                          <n-icon :component="RedrawIcon" />
+                        </template>
+                        重抽未锁定
+                      </n-button>
+                    </template>
+                    重新抽取未锁定的标签位
+                  </n-tooltip>
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
                       <n-button text @click="copyResults(true)" size="small">
                         <template #icon>
                           <n-icon :component="CopyIcon" />
@@ -596,8 +950,15 @@ watch(useMultiCategoryMode, (newValue) => {
                   :style="{ animationDelay: `${index * 0.1}s` }"
                 >
                   <div class="result-tag">
-                    <div class="result-category">
-                      {{ tagStore.categories.find(c => c.id === tag.categoryId)?.name || '未分类' }}
+                    <div class="result-tag-header">
+                      <div class="result-category">
+                        {{ tagStore.categories.find(c => c.id === tag.categoryId)?.name || '未分类' }}
+                      </div>
+                      <n-button text circle size="small" @click="toggleLock(tag.id)" class="lock-button">
+                        <template #icon>
+                          <n-icon :component="lockedTagIds.has(tag.id) ? LockIcon : UnlockIcon" />
+                        </template>
+                      </n-button>
                     </div>
                     <div class="result-content">{{ tag.name }}</div>
                     <div v-if="tag.subtitles && tag.subtitles.length > 0" class="result-subtitle">
@@ -635,6 +996,12 @@ watch(useMultiCategoryMode, (newValue) => {
                     <n-space :size="4" align="center">
                       <n-icon :component="LeastUsedIcon" />
                       <span>最少使用优先</span>
+                    </n-space>
+                  </n-radio>
+                  <n-radio value="mostUsed">
+                    <n-space :size="4" align="center">
+                      <n-icon :component="MostUsedIcon" />
+                      <span>最常用优先</span>
                     </n-space>
                   </n-radio>
                 </n-space>
@@ -690,9 +1057,26 @@ watch(useMultiCategoryMode, (newValue) => {
             <div v-for="item in historyItems" :key="item.id" class="history-item">
               <div class="history-header">
                 <div class="history-time">{{ formatTime(item.timestamp) }}</div>
-                <n-button text size="small" @click="reloadFromHistory(item)">
-                  重新加载
-                </n-button>
+                <n-space align="center">
+                  <n-button text size="small" @click="copyHistoryItemTags(item)">
+                    <template #icon><n-icon :component="CopyIcon" /></template>
+                    复制标签
+                  </n-button>
+                  <n-button text size="small" @click="reloadFromHistory(item)">
+                    <template #icon><n-icon :component="RedrawIcon" /></template>
+                    重新加载
+                  </n-button>
+                </n-space>
+              </div>
+              <div v-if="item.settings" class="history-settings">
+                  <span>设置: {{ item.settings.numTags }}个, 方法: {{ item.settings.method || '未知' }}</span>
+                  <span v-if="item.settings.categories && item.settings.categories.length > 0">, 分类: [{{ item.settings.categories.join(', ') }}]</span>
+                  <span v-if="item.settings.exclusions">, 排除: "{{ item.settings.exclusions }}"</span>
+                  <span v-if="item.settings.multiCategory && item.settings.ensureBalance">, 平衡模式</span>
+                  <span v-else-if="item.settings.multiCategory">, 多分类</span>
+              </div>
+              <div v-else class="history-settings-missing">
+                  <span>(旧记录，无详细设置信息)</span>
               </div>
               <div class="history-tags">
                 <n-tag v-for="tag in item.tags" :key="tag.id" class="history-tag" type="info">
@@ -704,6 +1088,23 @@ watch(useMultiCategoryMode, (newValue) => {
         </n-card>
       </n-tab-pane>
     </n-tabs>
+
+    <!-- 保存预设 Modal -->
+    <n-modal 
+      v-model:show="showSavePresetModal"
+      preset="dialog"
+      title="保存预设"
+      positive-text="保存"
+      negative-text="取消"
+      @positive-click="handleSavePresetConfirm"
+      @negative-click="cancelSavePreset"
+    >
+      <n-input 
+        v-model:value="newPresetName"
+        placeholder="输入预设名称"
+        @keydown.enter.prevent="handleSavePresetConfirm" 
+      />
+    </n-modal>
 
   </div>
 </template>
@@ -811,11 +1212,23 @@ watch(useMultiCategoryMode, (newValue) => {
   padding: 12px 16px;
   transition: all 0.2s ease;
   border: 1px solid var(--n-border-color);
+  position: relative;
 }
 
 .result-tag:hover {
   transform: translateY(-3px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+}
+
+.result-tag-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.lock-button {
+  margin-left: 8px;
 }
 
 .result-category {
@@ -867,6 +1280,13 @@ watch(useMultiCategoryMode, (newValue) => {
 .history-time {
   font-size: 13px;
   color: var(--n-text-color-3);
+}
+
+.history-settings {
+    font-size: 12px;
+    color: var(--n-text-color-3);
+    margin-bottom: 8px;
+    word-break: break-all; /* Prevent long settings from overflowing */
 }
 
 .history-tags {
@@ -931,5 +1351,17 @@ watch(useMultiCategoryMode, (newValue) => {
   .results-card {
     margin-top: 16px;
   }
+}
+
+.preset-management {
+  /* Optional: Add specific styles */
+  margin-bottom: 0; /* Align with divider */
+}
+
+.history-settings-missing {
+    font-size: 12px;
+    color: var(--n-text-color-disabled);
+    font-style: italic;
+    margin-bottom: 8px;
 }
 </style> 

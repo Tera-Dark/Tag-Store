@@ -15,7 +15,7 @@ export const useTagStore = defineStore('tagStore', () => {
   const isLoading = ref<boolean>(false); // Loading state for tags/categories
   const currentError = ref<string | null>(null);
   const searchTerm = ref<string>('');
-  const filterCategoryId = ref<string | null>(null); // null means show all categories
+  const filterCategoryIds = ref<string[]>([]); // 原名 filterCategoryId
 
   // --- Getters (Computed - Implicitly filtered by state which is library-specific) ---
   const allCategories = computed(() => categories.value);
@@ -25,10 +25,12 @@ export const useTagStore = defineStore('tagStore', () => {
   const filteredTags = computed(() => {
     let result = tags.value;
 
-    // Filter by category if one is selected
-    if (filterCategoryId.value) {
-      result = result.filter((tag) => tag.categoryId === filterCategoryId.value);
+    // Filter by categories if any are selected
+    if (filterCategoryIds.value.length > 0) {
+        const selectedSet = new Set(filterCategoryIds.value);
+        result = result.filter((tag) => selectedSet.has(tag.categoryId));
     }
+    // If filterCategoryIds is empty, no category filter is applied
 
     // Filter by search term (case-insensitive search in name, subtitles, and keyword)
     if (searchTerm.value.trim()) {
@@ -38,9 +40,8 @@ export const useTagStore = defineStore('tagStore', () => {
         const subtitleMatch = tag.subtitles?.some((sub) =>
           sub.toLowerCase().includes(lowerSearchTerm)
         );
-        // Add keyword check (optional chaining ?. because keyword is optional)
         const keywordMatch = tag.keyword?.toLowerCase().includes(lowerSearchTerm);
-        return nameMatch || subtitleMatch || keywordMatch; // Include keywordMatch here
+        return nameMatch || subtitleMatch || keywordMatch; 
       });
     }
 
@@ -339,14 +340,17 @@ export const useTagStore = defineStore('tagStore', () => {
 
   // --- Other Actions ---
   const updateSearchTerm = (term: string) => { searchTerm.value = term; };
-  const setFilterCategory = (categoryId: string | null) => { filterCategoryId.value = categoryId; };
+  const setFilterCategories = (categoryIds: string[]) => { // 原名 setFilterCategory
+      filterCategoryIds.value = categoryIds; 
+      console.log('tagStore: Filter categories set to:', categoryIds);
+  };
 
   // Clear local state (used when switching to no library)
   const clearLocalState = () => {
       console.log("Clearing local tag store state...");
       categories.value = [];
       tags.value = [];
-      filterCategoryId.value = null;
+      filterCategoryIds.value = []; // 重置为空数组
       searchTerm.value = '';
       currentError.value = null;
   };
@@ -359,7 +363,7 @@ export const useTagStore = defineStore('tagStore', () => {
     isLoading,
     currentError,
     searchTerm,
-    filterCategoryId,
+    filterCategoryIds, // 返回新状态
     // Getters
     allCategories,
     allTags,
@@ -377,7 +381,7 @@ export const useTagStore = defineStore('tagStore', () => {
     batchDeleteTags,
     batchMoveTags,
     updateSearchTerm,
-    setFilterCategory,
+    setFilterCategories, // 返回新 action
     exportDataAsJson, 
     importData, 
     clearLocalState, 
