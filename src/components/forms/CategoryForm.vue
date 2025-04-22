@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, defineProps } from 'vue';
 import { NForm, NFormItem, NInput } from 'naive-ui';
-import type { FormInst, FormRules /*, FormItemRule*/ } from 'naive-ui';
+import type { FormInst, FormRules } from 'naive-ui';
 import type { Category } from '../../types/data';
 
 // --- Props --- 

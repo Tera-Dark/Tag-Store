@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed /* watch */ } from 'vue';
+import { ref, computed } from 'vue';
 import * as StorageService from '../services/StorageService';
 import type { Library } from '../types/data';
 import { useTagStore } from './tagStore'; // Needed to re-initialize tagStore on library change

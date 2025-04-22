@@ -18,7 +18,7 @@ import { CloudUploadOutline as ImportIcon, CloudDownloadOutline as ExportIcon } 
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTagStore } from '../stores/tagStore';
 import { useLibraryStore } from '../stores/libraryStore';
-import type { TagStoreTemplate /* Library */ } from '../types/data'; // Restored TagStoreTemplate, Library remains removed
+import type { TagStoreTemplate } from '../types/data'; // Restored TagStoreTemplate
 
 const router = useRouter();
 const settingsStore = useSettingsStore();

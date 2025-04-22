@@ -36,10 +36,6 @@ onMounted(async () => { // Make onMounted async
   settingsStore.initializeSettings(); // Initialize settings AFTER stores are ready
 });
 
-// Theme configuration (example: start with light theme)
-// import { lightTheme } from 'naive-ui'
-// const theme = ref(lightTheme)
-
 // TODO: Implement theme switching based on settings store later
 </script>
 

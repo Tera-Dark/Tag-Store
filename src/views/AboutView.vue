@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NPageHeader, NCard, NSpace, NDivider, NText, NList, NListItem, NIcon } from 'naive-ui';
+import { NPageHeader, NCard, NSpace, NDivider, NText, NIcon } from 'naive-ui';
 import { useRouter } from 'vue-router';
 import { LogoGithub as GithubIcon, CodeSlashOutline as TechIcon, ShieldCheckmarkOutline as LicenseIcon } from '@vicons/ionicons5';
 
