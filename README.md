@@ -78,10 +78,11 @@
     ```bash
     # 根据你的实际仓库地址修改
     git clone https://github.com/your-username/your-repo-name.git 
-    cd your-repo-name/Tag-Store-v1.0 
+    cd your-repo-name/Tag-Store 
     ```
 2.  **安装依赖**
-    ```bash
+    ```
+        ```bash
     npm install 
     ```
     或者，如果你使用 `pnpm` 或 `yarn`:

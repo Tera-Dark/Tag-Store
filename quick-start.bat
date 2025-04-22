@@ -7,7 +7,7 @@ echo  TagStore Quick Start Script
 echo ===================================
 echo.
 echo IMPORTANT: Please ensure you run this script from the project root directory
-echo            where the package.json file is located (Tag-Store-v1.0).
+echo            where the package.json file is located (Tag-Store).
 echo.
 
 echo Checking prerequisites...

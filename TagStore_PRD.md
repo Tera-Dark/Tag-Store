@@ -371,7 +371,7 @@ TagStore 是一个专注于高效分类、管理和存储标签（Tag）的 Web 
 
 ### 4.6 部署 (NFR-DEPLOY)
 *   **NFR-DEPLOY-001**: 项目应能够构建并成功部署到 GitHub Pages。
-*   **NFR-DEPLOY-002**: Vite 构建配置 (`vite.config.ts`) 中的 `base` 选项必须正确配置，以匹配 GitHub Pages 的仓库路径 (例如：`/Tag-Store-v1.0/`)。
+*   **NFR-DEPLOY-002**: Vite 构建配置 (`vite.config.ts`) 中的 `base` 选项必须正确配置，以匹配 GitHub Pages 的仓库路径 (例如：`/Tag-Store/`)。
 *   **NFR-DEPLOY-003**: 推荐使用 Hash Mode (`createWebHashHistory`) 的 Vue Router 以简化 GitHub Pages 部署。如果使用 History Mode (`createWebHistory`)，需要查阅并实施 GitHub Pages 针对单页应用的 404 处理方案 (通常涉及根目录下的 `404.html` 文件或自定义域名配置)。
 *   **NFR-DEPLOY-004**: (推荐) 配置 GitHub Actions workflow，实现当代码合并到主分支 (如 `main` 或 `master`) 时，自动执行构建并将应用部署到 `gh-pages` 分支。
 

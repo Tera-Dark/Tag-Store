@@ -1,11 +1,11 @@
 {
-  "name": "tag-store-v1-0",
+  "name": "tag-store",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
-    "build": "vue-tsc -b && vite build",
+    "build": "vue-tsc -b && vite build && node fix-encoding.js",
     "preview": "vite preview",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx --ignore-path .gitignore",
     "lint:fix": "eslint . --ext .vue,.js,.ts,.jsx,.tsx --fix --ignore-path .gitignore",
