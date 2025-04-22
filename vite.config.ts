@@ -5,7 +5,7 @@ import vue from '@vitejs/plugin-vue'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: '/Tag-Store-v1.0/',
+  base: '/Tag-Store/',
   plugins: [
     vue(),
   ],
