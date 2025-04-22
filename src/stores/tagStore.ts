@@ -104,7 +104,7 @@ export const useTagStore = defineStore('tagStore', () => {
        if (categories.value.length === 0 && tags.value.length === 0) {
             console.log(`Library ${activeLibId} is empty, attempting to load default template...`);
             try {
-                const response = await fetch('/templates/default.json');
+                const response = await fetch(`${import.meta.env.BASE_URL}templates/default.json`);
                  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const templateData: TagStoreTemplate = await response.json();
                 // Import into the current library, merging (shouldn't conflict if empty)
