@@ -104,12 +104,69 @@ export const useTagStore = defineStore('tagStore', () => {
        if (categories.value.length === 0 && tags.value.length === 0) {
             console.log(`Library ${activeLibId} is empty, attempting to load default template...`);
             try {
-                const response = await fetch(`${import.meta.env.BASE_URL}templates/default.json`);
-                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                // 添加日志输出当前BASE_URL和完整URL
+                const baseUrl = import.meta.env.BASE_URL;
+                const fullUrl = `${baseUrl}templates/default.json`;
+                console.log(`BASE_URL is: ${baseUrl}`);
+                console.log(`Attempting to fetch template from: ${fullUrl}`);
+                
+                // 尝试常规路径
+                let response: Response | null = null;
+                try {
+                    response = await fetch(fullUrl);
+                    console.log(`Fetch response status: ${response.status}`);
+                    
+                    // 如果失败，尝试不同的路径格式
+                    if (!response.ok) {
+                        throw new Error(`Initial fetch failed with status: ${response.status}`);
+                    }
+                } catch (initialFetchError) {
+                    console.warn("初始加载失败，尝试使用绝对路径:", initialFetchError);
+                    
+                    // 尝试不同的路径组合
+                    const alternativeUrls = [
+                        // 绝对路径 - 使用当前域名的根目录
+                        '/Tag-Store/templates/default.json',
+                        // 1级目录
+                        './templates/default.json',
+                        // 没有前导斜杠
+                        'templates/default.json',
+                        // 尝试完全限定的URL，仅开发调试用
+                        'https://tera-dark.github.io/Tag-Store/templates/default.json'
+                    ];
+                    
+                    let fetchSuccess = false;
+                    for (const url of alternativeUrls) {
+                        try {
+                            console.log(`尝试备用路径: ${url}`);
+                            const altResponse = await fetch(url);
+                            if (altResponse.ok) {
+                                console.log(`✅ 成功从备用路径加载: ${url}`);
+                                response = altResponse;
+                                fetchSuccess = true;
+                                break;
+                            } else {
+                                console.log(`❌ 备用路径失败 ${url}: ${altResponse.status}`);
+                            }
+                        } catch (altError) {
+                            console.log(`❌ 备用路径出错 ${url}:`, altError);
+                        }
+                    }
+                    
+                    if (!fetchSuccess || !response) {
+                        throw new Error("所有尝试的路径都失败了");
+                    }
+                }
+                
+                if (!response || !response.ok) throw new Error(`HTTP error! status: ${response?.status || 'unknown'}`);
+                
                 const templateData: TagStoreTemplate = await response.json();
+                console.log(`Template loaded successfully with ${templateData.categories?.length || 0} categories and ${templateData.tags?.length || 0} tags`);
+                
                 // Import into the current library, merging (shouldn't conflict if empty)
                 await importData(templateData, false); 
             } catch (loadError) {
+                 console.error("详细错误信息:", loadError);
                  _handleError(loadError, '加载默认模板失败');
             }
        }
