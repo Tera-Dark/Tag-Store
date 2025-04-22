@@ -862,9 +862,68 @@ const reuseHistoryEntry = (text: string) => {
     
     <n-divider />
     
-    <!-- 输入模式选择 -->
-    <n-tabs type="line" v-model:value="activeTab">
-      <n-tab-pane name="select" tab="标签选择">
+    <!-- 输入模式选择 REMOVED n-tabs -->
+    <!-- <n-tabs type="line" v-model:value="activeTab"> -->
+      <!-- <n-tab-pane name="select" tab="标签选择"> -->
+        <!-- MOVED Text Input Card Here -->
+        <n-card title="文本转标签" size="small" style="margin-bottom: 12px;">
+          <n-space vertical>
+            <n-input
+              v-model:value="inputText"
+              type="textarea"
+              placeholder="在此输入或粘贴包含标签的文本，用逗号或换行分隔..."
+              :rows="4"
+            />
+            <n-space justify="space-between">
+              <n-space>
+                  <n-button type="primary" @click="parseInputText">解析标签</n-button>
+                  <n-button @click="inputText = ''">清空输入</n-button>
+              </n-space>
+              <n-button text @click="showExtractionSettings = !showExtractionSettings">
+                高级解析设置 {{ showExtractionSettings ? '▼' : '▶' }}
+              </n-button>
+            </n-space>
+            
+            <!-- 高级设置区域 -->
+            <n-collapse-transition :show="showExtractionSettings">
+              <n-card size="small" title="高级解析设置" style="margin-top: 10px;">
+                  <n-grid :cols="2" :x-gap="12">
+                      <n-gi>
+                          <n-form-item label="分隔符 (用 \n 换行, \t 制表)">
+                              <n-input 
+                                v-model:value="extractionSettings.delimiters" 
+                                placeholder=",，\n\t"
+                              />
+                          </n-form-item>
+                      </n-gi>
+                      <n-gi>
+                           <n-form-item label="重复标签处理">
+                              <n-select
+                                v-model:value="extractionSettings.duplicateHandling"
+                                :options="[
+                                    { label: '保留第一个', value: 'keepFirst' },
+                                    { label: '保留所有', value: 'keepAll' },
+                                    { label: '合并权重', value: 'mergeWeights' } // 可能需要添加
+                                ]"
+                              />
+                          </n-form-item>
+                      </n-gi>
+                      <n-gi :span="2">
+                          <n-space item-style="display: flex; align-items: center;">
+                               <n-checkbox v-model:checked="extractionSettings.trimWhitespace">去除首尾空格</n-checkbox>
+                               <n-checkbox v-model:checked="extractionSettings.removeEmpty">移除空标签</n-checkbox>
+                               <n-checkbox v-model:checked="extractionSettings.caseSensitiveMatch">匹配库时区分大小写</n-checkbox>
+                          </n-space>
+                      </n-gi>
+                  </n-grid>
+                   <template #footer>
+                      <n-text depth="3" style="font-size: 12px;">修改设置后需重新解析。</n-text>
+                   </template>
+              </n-card>
+            </n-collapse-transition>
+          </n-space>
+        </n-card>
+
         <n-grid :cols="24" :x-gap="12">
           <!-- 标签选择 - 改为全宽度 -->
           <n-gi :span="24">
@@ -1206,307 +1265,18 @@ const reuseHistoryEntry = (text: string) => {
             </n-card>
           </n-gi>
         </n-grid>
-      </n-tab-pane>
+      <!-- </n-tab-pane> -->
       
-      <n-tab-pane name="text" tab="文本转换">
-        <n-grid :cols="24" :x-gap="12">
-          <n-gi :span="24">
-            <n-card title="文本转标签" size="small">
-              <n-space vertical>
-                <n-input
-                  v-model:value="inputText"
-                  type="textarea"
-                  placeholder="在此输入或粘贴包含标签的文本..."
-                  :rows="4" 
-                />
-                <n-space justify="space-between">
-                  <n-space>
-                      <n-button type="primary" @click="parseInputText">解析标签</n-button>
-                      <n-button @click="inputText = ''">清空输入</n-button>
-                  </n-space>
-                  <n-button text @click="showExtractionSettings = !showExtractionSettings">
-                    高级设置 {{ showExtractionSettings ? '▼' : '▶' }}
-                  </n-button>
-                </n-space>
-                
-                <!-- 高级设置区域 -->
-                <n-collapse-transition :show="showExtractionSettings">
-                  <n-card size="small" title="高级解析设置" style="margin-top: 10px;">
-                      <n-grid :cols="2" :x-gap="12">
-                          <n-gi>
-                              <n-form-item label="分隔符 (用 \n 换行, \t 制表)">
-                                  <n-input 
-                                    v-model:value="extractionSettings.delimiters" 
-                                    placeholder=",，\n\t"
-                                  />
-                              </n-form-item>
-                          </n-gi>
-                          <n-gi>
-                               <n-form-item label="重复标签处理">
-                                  <n-select
-                                    v-model:value="extractionSettings.duplicateHandling"
-                                    :options="[
-                                        { label: '保留第一个', value: 'keepFirst' },
-                                        { label: '保留所有', value: 'keepAll' }
-                                    ]"
-                                  />
-                              </n-form-item>
-                          </n-gi>
-                          <n-gi :span="2">
-                              <n-space item-style="display: flex; align-items: center;">
-                                   <n-checkbox v-model:checked="extractionSettings.trimWhitespace">去除首尾空格</n-checkbox>
-                                   <n-checkbox v-model:checked="extractionSettings.removeEmpty">移除空标签</n-checkbox>
-                                   <n-checkbox v-model:checked="extractionSettings.caseSensitiveMatch">匹配库时区分大小写</n-checkbox>
-                              </n-space>
-                          </n-gi>
-                      </n-grid>
-                       <template #footer>
-                          <n-text depth="3" style="font-size: 12px;">修改设置后需重新解析。</n-text>
-                       </template>
-                  </n-card>
-                </n-collapse-transition>
-              </n-space>
-            </n-card>
-          </n-gi>
-          
-          <n-gi :span="24" style="margin-top: 12px;">
-            <n-card title="已解析标签" size="small">
-              <template #header-extra>
-                <n-space>
-                  <n-button tertiary size="tiny" @click="tagLayout = tagLayout === 'vertical' ? 'grid' : 'vertical'">
-                    <template #icon>
-                      <n-icon>
-                        <component :is="tagLayout === 'vertical' ? ListIcon : TagIcon" />
-                      </n-icon>
-                    </template>
-                    {{ tagLayout === 'vertical' ? '网格' : '列表' }}
-                  </n-button>
-                  <n-button tertiary size="tiny" @click="resetWeights" :disabled="selectedTags.length === 0">
-                    <template #icon>
-                      <n-icon><ResetIcon /></n-icon>
-                    </template>
-                    重置
-                  </n-button>
-                  <n-button tertiary size="tiny" @click="clearTags" :disabled="selectedTags.length === 0">
-                    <template #icon>
-                      <n-icon><ClearIcon /></n-icon>
-                    </template>
-                    清空
-                  </n-button>
-                </n-space>
-              </template>
-              
-              <n-space style="margin-bottom: 10px; flex-wrap: wrap">
-                <span>快速应用:</span>
-                <n-space style="flex-wrap: wrap">
-                  <n-button 
-                    v-for="(weight, preset) in weightPresets" 
-                    :key="preset"
-                    size="tiny"
-                    @click="applyWeightPreset(preset)"
-                    :disabled="selectedTags.length === 0"
-                  >{{ preset }}</n-button>
-                  <n-button 
-                    size="tiny"
-                    @click="applyRandomWeights"
-                    type="info"
-                    :disabled="selectedTags.length === 0"
-                  >
-                    <template #icon>
-                      <n-icon><RandomIcon /></n-icon>
-                    </template>
-                    随机权重
-                  </n-button>
-                  <n-button 
-                    size="tiny"
-                    @click="resetAllTags"
-                    type="warning"
-                    :disabled="selectedTags.length === 0"
-                  >
-                    重置标签
-                  </n-button>
-                </n-space>
-              </n-space>
-              
-              <!-- 文本输入后选择的标签 -->
-              <template v-if="tagLayout === 'grid'">
-                <div class="tags-grid" style="max-height: 300px; overflow-y: auto;">
-                  <div class="tags-grid-container">
-                    <div v-for="(tag, index) in selectedTags" :key="tag.id" class="tag-card-wrapper">
-                      <n-card size="small" class="tag-card">
-                        <div class="tag-card-content">
-                          <div class="tag-header">
-                            <div class="tag-title" :title="tag.name">{{ tag.name }}</div>
-                            <n-button tertiary circle size="tiny" @click="removeTag(index)" class="tag-remove-btn">
-                              <template #icon>
-                                <n-icon><ClearIcon /></n-icon>
-                              </template>
-                            </n-button>
-                          </div>
-                          
-                          <!-- 添加keyword显示 -->
-                          <div v-if="tag.keyword" class="tag-keyword" :title="tag.keyword">
-                            {{ truncateText(tag.keyword, 20) }}
-                          </div>
-                          
-                          <div class="tag-controls">
-                            <div class="tag-weight-control">
-                              <n-space :size="3" align="center">
-                                <n-icon size="14"><WeightIcon /></n-icon>
-                                <n-input-number
-                                  v-model:value="tagWeights[tag.id]"
-                                  size="small"
-                                  :min="0"
-                                  :max="2"
-                                  :step="Math.pow(0.1, decimalPlaces)"
-                                  @update:value="(val) => val !== null && updateTagWeight(tag.id, val)"
-                                  style="width: 120px;"
-                                />
-                                <n-button size="tiny" @click="randomizeTagWeight(tag.id)" class="random-btn">
-                                  <n-icon size="14"><RandomIcon /></n-icon>
-                                </n-button>
-                              </n-space>
-                            </div>
-                            
-                            <div class="tag-bracket-buttons">
-                              <n-space :size="2">
-                                <n-button 
-                                  v-for="bracket in bracketTypes.filter(b => b.value !== 'none')" 
-                                  :key="bracket.value"
-                                  size="tiny" 
-                                  :type="tagBrackets[tag.id] === bracket.value ? 'primary' : 'default'"
-                                  @click="toggleBracket(tag.id, bracket.value as BracketType)"
-                                >
-                                  {{ bracket.example }}
-                                </n-button>
-                                <n-button 
-                                  size="tiny"
-                                  :type="tagBrackets[tag.id] === 'none' ? 'primary' : 'default'"
-                                  @click="tagBrackets[tag.id] = 'none'; generatePrompt()"
-                                >
-                                  无
-                                </n-button>
-                                
-                                <!-- 添加嵌套控制按钮 -->
-                                <n-space v-if="tagBrackets[tag.id] !== 'none'" style="margin-left: 4px">
-                                  <n-button size="tiny" @click="decreaseNesting(tag.id)">-</n-button>
-                                  <span>+{{ getTagNesting(tag.id) }}</span>
-                                  <n-button size="tiny" @click="increaseNesting(tag.id)">+</n-button>
-                                </n-space>
-                              </n-space>
-                            </div>
-                          </div>
-                        </div>
-                      </n-card>
-                    </div>
-                  </div>
-                  
-                  <div v-if="selectedTags.length === 0" class="empty-placeholder">
-                    <div>尚未解析标签</div>
-                    <div class="empty-desc">请在文本框中输入标签文本并点击"解析标签"</div>
-                  </div>
-                </div>
-              </template>
-              
-              <!-- 列表模式显示解析后的标签 -->
-              <template v-else>
-                <div style="max-height: 300px; overflow-y: auto;">
-                  <n-list hoverable>
-                    <n-list-item v-for="(tag, index) in selectedTags" :key="tag.id">
-                      <n-thing :title="tag.name">
-                        <template #description>
-                          <n-space vertical :size="8">
-                            <n-space align="center" :size="5">
-                              <n-icon size="16"><WeightIcon /></n-icon>
-                              <n-input-number
-                                v-model:value="tagWeights[tag.id]"
-                                size="small"
-                                :min="0"
-                                :max="2"
-                                :step="Math.pow(0.1, decimalPlaces)"
-                                @update:value="(val) => val !== null && updateTagWeight(tag.id, val)"
-                                style="width: 120px;"
-                              />
-                              <n-button size="tiny" @click="randomizeTagWeight(tag.id)">
-                                <template #icon>
-                                  <n-icon><RandomIcon /></n-icon>
-                                </template>
-                              </n-button>
-                            </n-space>
-                            
-                            <n-space :size="2">
-                              <n-button 
-                                v-for="bracket in bracketTypes.filter(b => b.value !== 'none')" 
-                                :key="bracket.value"
-                                size="tiny" 
-                                :type="tagBrackets[tag.id] === bracket.value ? 'primary' : 'default'"
-                                @click="toggleBracket(tag.id, bracket.value as BracketType)"
-                              >
-                                {{ bracket.example }}
-                              </n-button>
-                              <n-button 
-                                size="tiny"
-                                :type="tagBrackets[tag.id] === 'none' ? 'primary' : 'default'"
-                                @click="tagBrackets[tag.id] = 'none'; generatePrompt()"
-                              >
-                                无
-                              </n-button>
-                              
-                              <!-- 添加嵌套控制按钮 -->
-                              <n-space v-if="tagBrackets[tag.id] !== 'none'" style="margin-left: 4px">
-                                <n-button size="tiny" @click="decreaseNesting(tag.id)">-</n-button>
-                                <span>+{{ getTagNesting(tag.id) }}</span>
-                                <n-button size="tiny" @click="increaseNesting(tag.id)">+</n-button>
-                              </n-space>
-                            </n-space>
-                          </n-space>
-                        </template>
-                        <template #header-extra>
-                          <n-button tertiary circle size="small" @click="removeTag(index)">
-                            <template #icon>
-                              <n-icon><ClearIcon /></n-icon>
-                            </template>
-                          </n-button>
-                        </template>
-                      </n-thing>
-                    </n-list-item>
-                    <n-list-item v-if="selectedTags.length === 0">
-                      <n-thing title="尚未解析标签">
-                        <template #description>
-                          请在文本框中输入标签文本并点击"解析标签"
-                        </template>
-                      </n-thing>
-                    </n-list-item>
-                  </n-list>
-                </div>
-              </template>
-            </n-card>
-          </n-gi>
-          
-          <!-- 新增：历史记录区域 -->
-           <n-gi :span="24" style="margin-top: 12px;">
-              <n-card title="解析历史" size="small">
-                  <template #header-extra>
-                      <n-button text size="small" @click="extractionHistory = []">清空历史</n-button>
-                  </template>
-                  <n-list v-if="extractionHistory.length > 0" hoverable clickable>
-                      <n-list-item v-for="(text, index) in extractionHistory" :key="index">
-                           <n-ellipsis style="max-width: 80%;">
-                              {{ text }}
-                           </n-ellipsis>
-                           <template #suffix>
-                               <n-button size="tiny" @click="reuseHistoryEntry(text)">复用</n-button>
-                           </template>
-                      </n-list-item>
-                  </n-list>
-                  <n-empty v-else description="暂无历史记录" />
-              </n-card>
-          </n-gi>
-        </n-grid>
-      </n-tab-pane>
+      <!-- REMOVED TEXT TAB PANE -->
+      <!-- <n-tab-pane name="text" tab="文本转换"> -->
+        <!-- Text Input Card was here - MOVED UP -->
+        <!-- Parsed Tags Card was here - REMOVED -->
+        <!-- History Card was here - REMOVED -->
+      <!-- </n-tab-pane> -->
       
-      <n-tab-pane name="settings" tab="设置">
-        <n-grid :cols="24" :x-gap="12">
+      <!-- <n-tab-pane name="settings" tab="设置"> -->
+        <!-- Settings Card - REMAINS BUT UNWRAPPED -->
+        <n-grid :cols="24" :x-gap="12" style="margin-top: 12px;">
           <n-gi :span="24">
             <n-card title="权重与括号设置" size="small">
               <n-grid :cols="24" :x-gap="12">
@@ -1632,8 +1402,8 @@ const reuseHistoryEntry = (text: string) => {
             </n-space>
           </n-gi>
         </n-grid>
-      </n-tab-pane>
-    </n-tabs>
+      <!-- </n-tab-pane> -->
+    <!-- </n-tabs> -->
     
     <!-- 下方生成结果和设置 -->
     <n-card title="生成结果" size="small" style="margin-top: 12px;">

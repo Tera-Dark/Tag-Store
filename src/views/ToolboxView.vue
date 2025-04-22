@@ -13,7 +13,8 @@ import {
 import { useRouter } from 'vue-router';
 import { 
     ShuffleOutline as DrawerIcon,
-    ScaleOutline as WeightIcon // 添加权重图标
+    ScaleOutline as WeightIcon, // 添加权重图标
+    CartOutline as CartIcon // Add icon for shopping cart
 } from '@vicons/ionicons5';
 
 const router = useRouter();
@@ -40,6 +41,13 @@ const tools = [
         description: '生成带权重的AI绘图提示词，适用于Stable Diffusion等AI绘图工具',
         icon: WeightIcon,
         path: '/toolbox/weight-generator'
+    },
+    // Add Tag Shopping Cart tool
+    {
+        title: '标签购物车',
+        description: '通过分类细分，组合挑选标签，构建提示词',
+        icon: CartIcon,
+        path: '/toolbox/tag-cart'
     }
     // Add more tool objects here later if needed
 ];

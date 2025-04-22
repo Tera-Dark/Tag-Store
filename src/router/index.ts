@@ -10,6 +10,7 @@ import DashboardView from '../views/DashboardView.vue'; // Import Dashboard view
 // Import the tool views
 import TagDrawerView from '../views/tools/TagDrawerView.vue';
 import WeightGeneratorView from '../views/tools/WeightGeneratorView.vue'; // 导入权重添加器工具
+import TagShoppingCartView from '../views/tools/TagShoppingCartView.vue'; // Import new tool view
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -42,6 +43,12 @@ const routes: Array<RouteRecordRaw> = [
     path: '/toolbox/weight-generator', // 添加权重添加器路由
     name: 'WeightGeneratorTool',
     component: WeightGeneratorView,
+  },
+  // Add route for Tag Shopping Cart
+  {
+    path: '/toolbox/tag-cart',
+    name: 'TagShoppingCartTool',
+    component: TagShoppingCartView,
   },
   {
     path: '/about', // Add about route
