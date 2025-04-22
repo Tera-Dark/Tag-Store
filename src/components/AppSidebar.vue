@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { h, ref, defineProps, computed, watch } from 'vue';
-import { NMenu, NIcon, NTooltip, NDivider } from 'naive-ui';
+import { h, ref, defineProps, watch } from 'vue';
+import { NMenu, NIcon, NDivider } from 'naive-ui';
 import type { MenuOption } from 'naive-ui';
 import { 
   GridOutline as DashboardIcon,
@@ -78,7 +78,7 @@ watch(() => router.currentRoute.value.path, (path) => {
 }, { immediate: true });
 
 // Handle menu item selection
-const handleMenuSelect = (key: string, item: MenuOption) => {
+const handleMenuSelect = (item: MenuOption) => {
   if (typeof item !== 'string' && 'path' in item && item.path) { 
     router.push(item.path);
   }

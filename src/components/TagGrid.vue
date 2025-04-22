@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NGrid, NGi, NCard, NTag, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, NIcon, NDropdown, useThemeVars } from 'naive-ui';
+import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, NIcon, NDropdown, useThemeVars } from 'naive-ui';
 import { useTagStore } from '../stores/tagStore';
 import TagCard from './TagCard.vue';
 import TagDialog from './dialogs/TagDialog.vue';

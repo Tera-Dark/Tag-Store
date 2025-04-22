@@ -15,7 +15,7 @@ export const useTagStore = defineStore('tagStore', () => {
   const isLoading = ref<boolean>(false); // Loading state for tags/categories
   const currentError = ref<string | null>(null);
   const searchTerm = ref<string>('');
-  const filterCategoryIds = ref<string[]>([]); // 原名 filterCategoryId
+  const filterCategoryId = ref<string | null>(null);
 
   // --- Getters (Computed - Implicitly filtered by state which is library-specific) ---
   const allCategories = computed(() => categories.value);
@@ -25,12 +25,11 @@ export const useTagStore = defineStore('tagStore', () => {
   const filteredTags = computed(() => {
     let result = tags.value;
 
-    // Filter by categories if any are selected
-    if (filterCategoryIds.value.length > 0) {
-        const selectedSet = new Set(filterCategoryIds.value);
-        result = result.filter((tag) => selectedSet.has(tag.categoryId));
+    // Filter by the single selected category if one is selected
+    if (filterCategoryId.value !== null) {
+      result = result.filter((tag) => tag.categoryId === filterCategoryId.value);
     }
-    // If filterCategoryIds is empty, no category filter is applied
+    // If filterCategoryId is null, no category filter is applied
 
     // Filter by search term (case-insensitive search in name, subtitles, and keyword)
     if (searchTerm.value.trim()) {
@@ -340,9 +339,8 @@ export const useTagStore = defineStore('tagStore', () => {
 
   // --- Other Actions ---
   const updateSearchTerm = (term: string) => { searchTerm.value = term; };
-  const setFilterCategories = (categoryIds: string[]) => { // 原名 setFilterCategory
-      filterCategoryIds.value = categoryIds; 
-      console.log('tagStore: Filter categories set to:', categoryIds);
+  const setFilterCategory = (categoryId: string | null) => {
+    filterCategoryId.value = categoryId;
   };
 
   // Clear local state (used when switching to no library)
@@ -350,9 +348,9 @@ export const useTagStore = defineStore('tagStore', () => {
       console.log("Clearing local tag store state...");
       categories.value = [];
       tags.value = [];
-      filterCategoryIds.value = []; // 重置为空数组
-      searchTerm.value = '';
       currentError.value = null;
+      searchTerm.value = '';
+      filterCategoryId.value = null;
   };
 
   // --- Return ---
@@ -363,7 +361,7 @@ export const useTagStore = defineStore('tagStore', () => {
     isLoading,
     currentError,
     searchTerm,
-    filterCategoryIds, // 返回新状态
+    filterCategoryId,
     // Getters
     allCategories,
     allTags,
@@ -371,7 +369,7 @@ export const useTagStore = defineStore('tagStore', () => {
     getCategoryNameById,
     // Actions
     initializeStore,
-    loadDefaultTemplateIfEmpty, // Renamed from loadTemplateFromJson for clarity
+    loadDefaultTemplateIfEmpty,
     addCategory,
     updateCategory,
     deleteCategory,
@@ -381,7 +379,7 @@ export const useTagStore = defineStore('tagStore', () => {
     batchDeleteTags,
     batchMoveTags,
     updateSearchTerm,
-    setFilterCategories, // 返回新 action
+    setFilterCategory,
     exportDataAsJson, 
     importData, 
     clearLocalState, 
