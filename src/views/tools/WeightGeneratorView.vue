@@ -47,8 +47,12 @@ import {
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
-import type { Category, Tag } from '../../types/data';
+import { useSettingsStore } from '../../stores/settingsStore';
+import type { Tag } from '../../types/data';
 import { useRouter } from 'vue-router';
+
+// Define the constant locally
+const ALL_CATEGORIES_KEY = '__ALL__';
 
 type TemplateType = 'sd' | 'mj' | 'cn' | 'comfy' | 'custom';
 type TemplateConfig = {
@@ -61,16 +65,16 @@ type TemplateConfig = {
 
 const tagStore = useTagStore();
 const libraryStore = useLibraryStore();
+const settingsStore = useSettingsStore();
 const message = useMessage();
 const router = useRouter();
 
 // --- 基本组件状态 ---
-const selectedCategoryIds = ref<string[]>([]);
+const selectedCategoryIds = ref<string[]>([ALL_CATEGORIES_KEY]);
 const searchTerm = ref<string>('');
 const selectedTags = ref<Tag[]>([]);
 const generatedPrompt = ref<string>('');
 const isLoading = ref<boolean>(false);
-const ALL_CATEGORIES_KEY = '__ALL__';
 const activeTab = ref<string>('select'); // 'select' 或 'text'
 const tagLayout = ref<'vertical' | 'grid'>('grid'); // 标签布局：垂直列表或网格
 
@@ -80,7 +84,7 @@ const customTagsHolder = ref<Array<{id: string; name: string; keyword?: string; 
 
 // --- 新增：文本转换高级设置状态 ---
 const extractionSettings = ref({
-  delimiters: ',，\n\t', // 默认分隔符：中英文逗号、换行符、制表符
+  delimiters: ',\n\t',
   trimWhitespace: true,    // 默认去除首尾空格
   removeEmpty: true,       // 默认移除空标签
   caseSensitiveMatch: false, // 默认不区分大小写匹配库
@@ -676,18 +680,18 @@ const resetWeights = () => {
 };
 
 // --- 生命周期钩子 ---
-onMounted(() => {
+onMounted(async () => {
     loadSettings();
     
     console.log('onMounted: Initializing tagStore...');
     // 初始化标签库数据
-    tagStore.initializeStore().then(() => {
+    await tagStore.initializeStore().then(() => {
         // initializeStore 成功解析，我们假设数据已加载或正在加载
         console.log('onMounted: tagStore initializeStore promise resolved. Categories count:', tagStore.categories.length);
         
         // 直接设置默认值，不再需要 nextTick 或检查长度
-        selectedCategoryIds.value = []; 
-        tagStore.setFilterCategories([]); 
+        selectedCategoryIds.value = [ALL_CATEGORIES_KEY]; 
+        tagStore.setFilterCategory(null); 
         console.log('onMounted: Default categories set to empty.');
         
         // 可以在这里添加一个稍微延迟的加载完成提示，如果需要的话
@@ -705,43 +709,6 @@ onMounted(() => {
 watch([activeTemplate], () => {
     generatePrompt();
 });
-
-// 修复bracketTypes.find问题
-const bracketLabel = (value: BracketType) => {
-    const found = bracketTypes.find((b) => b.value === value);
-    return found ? found.label : '无';
-};
-
-// 更新 handleCategorySelect 以处理数组并调用 store 方法
-const handleCategorySelect = (categoryIds: string[]) => {
-  // 更新本地状态
-  selectedCategoryIds.value = categoryIds;
-  
-  // 调用 tagStore 的方法设置过滤分类 (下一步将在 tagStore 中实现)
-  // 注意：这里假设的方法名是 setFilterCategories
-  tagStore.setFilterCategories(categoryIds); 
-  
-  // 显示成功消息
-  if (categoryIds.length === 0) {
-      message.success('已清除分类选择，显示所有标签');
-  } else {
-      message.success(`已选择 ${categoryIds.length} 个分类`);
-  }
-  
-  // 在DOM更新后检查标签列表
-  nextTick(() => {
-    // 检查 filteredTags 是否已定义
-    const currentFilteredTags = filteredTags.value;
-    if (currentFilteredTags) {
-        console.log('选择分类:', categoryIds, '过滤后标签数量:', currentFilteredTags.length);
-        if (categoryIds.length > 0 && currentFilteredTags.length === 0) {
-          message.info('所选分类下没有可用标签');
-        }
-    } else {
-         console.warn('handleCategorySelect: filteredTags is undefined after nextTick');
-    }
-  });
-};
 
 // 获取当前选择的分类名称的方法
 const getCategoryName = () => {
@@ -845,6 +812,38 @@ const reuseHistoryEntry = (text: string) => {
     inputText.value = text;
     parseInputText(); // 选择性地：复用后自动解析
     message.success('已复用历史记录');
+};
+
+// Restore handleCategorySelect function definition
+const handleCategorySelect = (categoryIds: string[]) => {
+  // 更新本地状态
+  selectedCategoryIds.value = categoryIds;
+  
+  // 调用 tagStore 的方法设置过滤分类
+  // Pass the first selected ID (or null if empty) to the store's setFilterCategory
+  const singleCategoryId = categoryIds.length > 0 ? categoryIds[0] : null;
+  tagStore.setFilterCategory(singleCategoryId); 
+  
+  // 显示成功消息
+  if (singleCategoryId === null) {
+      message.success('已清除分类选择，显示所有标签');
+  } else {
+      message.success(`已选择 ${categoryIds.length} 个分类`);
+  }
+  
+  // 在DOM更新后检查标签列表
+  nextTick(() => {
+    // 检查 filteredTags 是否已定义
+    const currentFilteredTags = filteredTags.value;
+    if (currentFilteredTags) {
+        console.log('选择分类:', categoryIds, '过滤后标签数量:', currentFilteredTags.length);
+        if (categoryIds.length > 0 && currentFilteredTags.length === 0) {
+          message.info('所选分类下没有可用标签');
+        }
+    } else {
+         console.warn('handleCategorySelect: filteredTags is undefined after nextTick');
+    }
+  });
 };
 </script>
 

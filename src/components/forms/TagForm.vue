@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, reactive, watch, computed, defineProps, defineEmits } from 'vue';
+import { ref, reactive, watch, computed, defineProps } from 'vue';
 import { NForm, NFormItem, NInput, NSelect, NDynamicInput } from 'naive-ui';
-import type { FormInst, FormRules, FormItemRule, SelectOption } from 'naive-ui';
+import type { FormInst, FormRules, SelectOption } from 'naive-ui';
 import { useTagStore } from '../../stores/tagStore';
 import type { Tag, Category } from '../../types/data';
 
@@ -11,10 +11,6 @@ interface Props {
 }
 const props = defineProps<Props>();
 
-// --- Emits ---
-// Emitting Omit<Tag, 'id'> to ensure parent handles ID generation/retention
-const emit = defineEmits<{ (e: 'submit', formData: Omit<Tag, 'id'>): void }>();
-
 // --- Store & State ---
 const tagStore = useTagStore();
 const formRef = ref<FormInst | null>(null);
@@ -23,6 +19,7 @@ const formRef = ref<FormInst | null>(null);
 const formData = reactive<Omit<Tag, 'id'>>({
   categoryId: '', // Required
   name: '',       // Required
+  libraryId: '', // Initialize with empty string to fix type error
   subtitles: [],
   keyword: '',
   // color: undefined, // Optional fields
@@ -118,7 +115,6 @@ defineExpose({ validate, getFormData });
        <n-dynamic-input
           v-model:value="formData.subtitles"
           placeholder="输入副标题/别名"
-          #="{ index, value }"
           :min="0"
         >
          <!-- Optional: Customize the input within dynamic input if needed -->

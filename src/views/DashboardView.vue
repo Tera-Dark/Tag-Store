@@ -7,8 +7,10 @@ import {
     NGrid, 
     NGi, 
     NStatistic, 
-    NIcon 
+    NIcon,
+    NButton
 } from 'naive-ui';
+import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { LayersOutline as StackIcon, PricetagsOutline as TagIcon, LibraryOutline as LibraryIcon } from '@vicons/ionicons5';
 import { useLibraryStore } from '../stores/libraryStore'; // To get stats
@@ -18,17 +20,16 @@ const router = useRouter();
 const libraryStore = useLibraryStore();
 const tagStore = useTagStore(); // Make sure it's initialized for stats
 
-const handleBack = () => { 
-    // Dashboard is top-level, maybe no back button needed?
-    // Or navigate to a specific place? For now, just log.
-    console.log("Back button clicked on dashboard");
-};
+// Handle back is likely unused, removing for now
+// const handleBack = () => {
+//     console.log("Back button clicked on dashboard");
+// };
 
-// Placeholder stats (replace with actual store data later)
-const totalLibraries = libraryStore.libraries.length;
-const totalCategories = tagStore.allCategories.length; // For current library
-const totalTags = tagStore.allTags.length;         // For current library
-const currentLibraryName = libraryStore.activeLibrary?.name || '无';
+// Use computed properties for stats to ensure reactivity
+const totalLibraries = computed(() => libraryStore.libraries.length);
+const totalCategories = computed(() => tagStore.allCategories.length); // Assumes tagStore reflects active library
+const totalTags = computed(() => tagStore.allTags.length); // Assumes tagStore reflects active library
+const currentLibraryName = computed(() => libraryStore.activeLibrary?.name || '无');
 
 </script>
 

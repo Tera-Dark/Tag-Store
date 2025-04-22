@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, watch, defineProps, defineEmits } from 'vue';
+import { ref, reactive, watch, defineProps } from 'vue';
 import { NForm, NFormItem, NInput } from 'naive-ui';
 import type { FormInst, FormRules /*, FormItemRule*/ } from 'naive-ui';
 import type { Category } from '../../types/data';
@@ -9,10 +9,6 @@ interface Props {
   initialData?: Partial<Category>; // For editing existing category
 }
 const props = defineProps<Props>();
-
-// --- Emits --- 
-// Removed unused emit declaration
-// const emit = defineEmits<{ (e: 'submit', formData: Omit<Category, 'id'>): void }>(); 
 
 // --- Form State & Rules --- 
 const formRef = ref<FormInst | null>(null);

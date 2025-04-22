@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'vue-router';
 
 // Define props
+// eslint-disable-next-line vue/no-unused-properties
 const props = defineProps<{ collapsed: boolean }>();
 
 // 定义事件
@@ -78,7 +79,7 @@ watch(() => router.currentRoute.value.path, (path) => {
 }, { immediate: true });
 
 // Handle menu item selection
-const handleMenuSelect = (key: string, item: MenuOption) => {
+const handleMenuSelect = (key: string, item: MenuOption) => { 
   if (typeof item !== 'string' && 'path' in item && item.path) { 
     router.push(item.path);
   }
