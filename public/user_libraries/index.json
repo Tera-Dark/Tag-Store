@@ -1,0 +1,85 @@
+{
+  "version": "1.0",
+  "libraries": [
+    {
+      "id": "test1",
+      "name": "测试1",
+      "description": "测试用标签库示例",
+      "path": "test_libraries.json",
+      "tags_count": 4,
+      "categories_count": 2,
+      "created_at": "2024-04-23T12:00:00Z",
+      "updated_at": "2024-04-23T12:00:00Z"
+    },
+    {
+      "id": "default_library",
+      "name": "默认标签库",
+      "description": "系统默认的标签库",
+      "path": "anime_characters.json",
+      "tags_count": 45,
+      "categories_count": 9,
+      "created_at": "2024-04-23T12:00:00Z",
+      "updated_at": "2024-04-23T12:00:00Z"
+    },
+    {
+      "id": "111",
+      "name": "111",
+      "description": "简单测试标签库",
+      "path": "lib_111.json",
+      "tags_count": 3,
+      "categories_count": 1,
+      "created_at": "2024-04-23T12:00:00Z",
+      "updated_at": "2024-04-23T12:00:00Z"
+    },
+    {
+      "id": "my_personal_1",
+      "name": "我的自用1",
+      "description": "个人自用标签库示例",
+      "path": "my_personal_1.json",
+      "tags_count": 5,
+      "categories_count": 2,
+      "created_at": "2024-04-23T12:00:00Z", 
+      "updated_at": "2024-04-23T12:00:00Z"
+    },
+    {
+      "id": "222",
+      "name": "222",
+      "description": "自定义标签库示例",
+      "path": "anime_characters.json",
+      "tags_count": 45,
+      "categories_count": 9,
+      "created_at": "2024-04-23T12:00:00Z",
+      "updated_at": "2024-04-23T12:00:00Z"
+    },
+    {
+      "id": "anime_characters",
+      "name": "动漫人物标签库",
+      "description": "包含各种动漫人物的标签集合，适用于绘画、AI生成等场景",
+      "path": "anime_characters.json",
+      "tags_count": 45,
+      "categories_count": 9,
+      "created_at": "2024-04-23T12:00:00Z",
+      "updated_at": "2024-04-23T12:00:00Z"
+    },
+    {
+      "id": "anime_clothing",
+      "name": "动漫服饰标签库",
+      "description": "包含各种动漫角色服装和服饰的标签集合，适用于绘画、AI生成等场景",
+      "path": "anime_clothing.json",
+      "tags_count": 56,
+      "categories_count": 8,
+      "created_at": "2024-04-23T12:00:00Z",
+      "updated_at": "2024-04-23T12:00:00Z"
+    },
+    {
+      "id": "anime_expressions",
+      "name": "动漫表情动作标签库",
+      "description": "包含各种动漫角色表情、姿势和动作的标签集合，适用于绘画、AI生成等场景",
+      "path": "anime_expressions.json",
+      "tags_count": 65,
+      "categories_count": 7,
+      "created_at": "2024-04-23T12:00:00Z",
+      "updated_at": "2024-04-23T12:00:00Z"
+    }
+  ]
+} 

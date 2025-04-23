@@ -16,24 +16,28 @@ const libraryStore = useLibraryStore(); // Get library store instance
 
 // Load data and settings when the component is mounted
 onMounted(async () => { // Make onMounted async
-  const defaultCreated = await libraryStore.initializeLibraries(); // Initialize libraries FIRST and wait, get flag
-  // Now that libraryStore is ready (and activeLibraryId should be set),
-  // initialize the tag store for the active library.
-  await tagStore.initializeStore(); // Wait for tagStore initialization too
+  console.log("应用程序启动，开始初始化...");
   
-  // If the default library was just created, load the default template
+  // 1. 首先初始化设置，确保主题等配置正确
+  settingsStore.initializeSettings();
+  
+  // 2. 初始化库存储，这会加载所有标签库并设置活动库
+  const defaultCreated = await libraryStore.initializeLibraries();
+  
+  // 3. 确保tagStore也初始化
+  await tagStore.initializeStore();
+  
+  // 4. 如果是第一次启动（刚刚创建了默认库），加载默认模板
   if (defaultCreated) {
-    console.log("First default library created, loading default template...");
-    // Use try-catch here as loadDefaultTemplateIfEmpty handles its own errors but good practice
+    console.log("首次创建默认库，尝试加载默认模板...");
     try {
-        await tagStore.loadDefaultTemplateIfEmpty(); 
-    } catch (error) { 
-        console.error("Error attempting to load default template after initial library creation:", error);
-        // Optionally show a message to the user via useMessage if available/needed
+      await tagStore.loadDefaultTemplateIfEmpty();
+    } catch (error) {
+      console.error("加载默认模板失败:", error);
     }
   }
-
-  settingsStore.initializeSettings(); // Initialize settings AFTER stores are ready
+  
+  console.log("应用程序初始化完成");
 });
 
 // TODO: Implement theme switching based on settings store later

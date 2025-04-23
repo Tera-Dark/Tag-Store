@@ -125,3 +125,110 @@ public/              # 公共静态文件 (如 default.json 模板)
 ## 许可证
 
 本项目采用 [MIT 许可证](LICENSE)。
+
+## 开发
+
+```bash
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+
+# 构建生产版本
+npm run build
+
+# 预览构建结果
+npm run preview
+```
+
+## 部署到GitHub Pages
+
+本项目配置了自动部署到GitHub Pages的工作流，只需要将代码推送到main分支，GitHub Actions就会自动构建并部署网站。
+
+### 手动部署
+
+1. 构建项目
+   ```bash
+   npm run build
+   ```
+
+2. 构建结果将保存在`dist`目录中
+3. 将`dist`目录的内容推送到GitHub Pages分支
+
+## 用户库
+
+### 1. 目录结构
+
+用户库文件存储在`public/user_libraries`目录中，构建后会自动复制到`dist/user_libraries`目录。
+
+用户库目录结构：
+```
+public/
+  └── user_libraries/
+      ├── index.json     # 用户库索引文件
+      ├── lib1.json      # 用户库文件1
+      ├── lib2.json      # 用户库文件2
+      └── ...
+```
+
+### 2. 索引文件格式
+
+`index.json`文件用于索引所有用户库，格式如下：
+
+```json
+{
+  "version": "1.0",
+  "libraries": [
+    {
+      "id": "lib1",
+      "name": "示例库1",
+      "description": "示例标签库",
+      "path": "lib1.json",
+      "tags_count": 10,
+      "categories_count": 2
+    },
+    {
+      "id": "lib2",
+      "name": "示例库2",
+      "description": "示例标签库2",
+      "path": "lib2.json",
+      "tags_count": 15,
+      "categories_count": 3
+    }
+  ]
+}
+```
+
+### 3. 用户库文件格式
+
+用户库文件的格式如下：
+
+```json
+{
+  "version": "1.0",
+  "metadata": {
+    "name": "示例库",
+    "description": "示例标签库"
+  },
+  "categories": [
+    {
+      "name": "分类1",
+      "description": "分类描述"
+    }
+  ],
+  "tags": [
+    {
+      "categoryName": "分类1",
+      "name": "标签1",
+      "subtitles": ["副标题1", "副标题2"],
+      "keyword": "keyword1"
+    }
+  ]
+}
+```
+
+## 注意事项
+
+- 部署到GitHub Pages时，基础URL为`/Tag-Store/`
+- 在本地开发时，基础URL为`/`

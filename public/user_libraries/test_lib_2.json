@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "name": "222",
+    "description": "测试用标签库2"
+  },
+  "categories": [
+    {
+      "name": "测试分类X",
+      "description": "测试用分类X"
+    },
+    {
+      "name": "测试分类Y",
+      "description": "测试用分类Y"
+    }
+  ],
+  "tags": [
+    {
+      "categoryName": "测试分类X",
+      "name": "测试标签X1",
+      "subtitles": ["测试", "样例"],
+      "keyword": "test_tag_x1"
+    },
+    {
+      "categoryName": "测试分类X",
+      "name": "测试标签X2",
+      "subtitles": ["测试", "样例"],
+      "keyword": "test_tag_x2"
+    },
+    {
+      "categoryName": "测试分类Y",
+      "name": "测试标签Y1",
+      "subtitles": ["测试", "样例"],
+      "keyword": "test_tag_y1"
+    },
+    {
+      "categoryName": "测试分类Y",
+      "name": "测试标签Y2",
+      "subtitles": ["测试", "样例"],
+      "keyword": "test_tag_y2"
+    }
+  ]
+} 

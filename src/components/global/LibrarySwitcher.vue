@@ -20,6 +20,7 @@ import {
   AppsOutline as SwitcherIcon,
   EllipsisHorizontalOutline as MoreIcon
 } from '@vicons/ionicons5';
+import LibraryManagerDialog from '../dialogs/LibraryManagerDialog.vue';
 
 const tagStore = useTagStore();
 const libraryStore = useLibraryStore();
@@ -28,6 +29,7 @@ const message = useMessage();
 const isHovering = ref(false);
 const isCompact = ref(false);
 const isSwitching = ref(false);
+const showLibraryManager = ref(false); // 显示标签库管理对话框
 
 // 自动检测是否需要使用紧凑模式
 const checkCompactMode = () => {
@@ -39,6 +41,9 @@ const checkCompactMode = () => {
 onMounted(() => {
   checkCompactMode();
   window.addEventListener('resize', checkCompactMode);
+  
+  // 不再由此组件负责加载和创建用户库
+  // loadUserLibraries(); 
 });
 
 // Compute display data
@@ -80,12 +85,12 @@ const handleLibraryChange = async (value: string) => {
     }
 };
 
-// 管理库按钮功能（未来实现）
+// 管理库按钮功能
 const showManageButton = true; // 启用管理按钮
 
 const handleManageLibrary = () => {
-  // 未来实现管理库的功能
-  message.info('管理标签库功能即将推出');
+  // 打开标签库管理对话框
+  showLibraryManager.value = true;
 };
 
 </script>
@@ -197,6 +202,9 @@ const handleManageLibrary = () => {
     </template>
 
   </n-space>
+  
+  <!-- 标签库管理对话框 -->
+  <LibraryManagerDialog v-model:show="showLibraryManager" />
 </template>
 
 <style scoped>

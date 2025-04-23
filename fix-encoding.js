@@ -6,58 +6,58 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 定义需要处理的文件列表
-const filesToProcess = [
-  {
-    source: path.join(__dirname, 'public', 'templates', 'default.json'),
-    target: path.join(__dirname, 'dist', 'templates', 'default.json')
-  },
-  {
-    source: path.join(__dirname, 'public', 'templates', 'english20.json'),
-    target: path.join(__dirname, 'dist', 'templates', 'english20.json')
-  },
-  {
-    source: path.join(__dirname, 'public', 'templates', 'english50.json'),
-    target: path.join(__dirname, 'dist', 'templates', 'english50.json')
-  }
-];
+console.log('--- fix-encoding.js 脚本开始 ---');
 
-// 确保目标目录存在
-const templatesDir = path.join(__dirname, 'dist', 'templates');
-if (!fs.existsSync(templatesDir)) {
-  fs.mkdirSync(templatesDir, { recursive: true });
+// --- 处理用户库文件夹 ---
+try {
+  console.log('\n--- 开始处理用户库文件夹 ---');
+
+  // 确保目标用户库目录存在
+  const userLibsDir = path.join(__dirname, 'dist', 'user_libraries');
+  if (!fs.existsSync(userLibsDir)) {
+    fs.mkdirSync(userLibsDir, { recursive: true });
+    console.log(`✅ 创建用户库目录: ${userLibsDir}`);
+  }
+
+  // 源用户库目录
+  const sourceUserLibsDir = path.join(__dirname, 'public', 'user_libraries');
+  if (!fs.existsSync(sourceUserLibsDir)) {
+    console.warn(`🟠 警告: 源用户库目录不存在 ${sourceUserLibsDir}`);
+  } else {
+    // 读取源目录中的所有文件
+    const files = fs.readdirSync(sourceUserLibsDir);
+    console.log(`发现${files.length}个用户库文件`);
+
+    // 复制每个文件到目标目录
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        const sourcePath = path.join(sourceUserLibsDir, file);
+        const targetPath = path.join(userLibsDir, file);
+        console.log(`  处理用户库文件: ${file}`);
+
+        // 读取源文件内容
+        const content = fs.readFileSync(sourcePath, 'utf8');
+
+        // 尝试解析和重新格式化JSON
+        let formattedContent = content;
+        try {
+          const jsonObj = JSON.parse(content);
+          formattedContent = JSON.stringify(jsonObj, null, 2);
+          console.log(`    JSON格式化成功: ${file}`);
+        } catch (jsonError) {
+          console.warn(`    🟡 警告: JSON解析失败 ${file}, 将使用原始内容。错误:`, jsonError.message);
+        }
+
+        // 写入目标文件
+        fs.writeFileSync(targetPath, formattedContent, 'utf8');
+        console.log(`    ✅ 复制并修复编码: ${file}`);
+      }
+    }
+
+    console.log('✅ 用户库文件处理完成');
+  }
+} catch (error) {
+  console.error('处理用户库文件时出错:', error);
 }
 
-// 处理每个文件
-for (const file of filesToProcess) {
-  try {
-    console.log(`正在处理文件: ${file.source}`);
-    
-    // 检查源文件是否存在
-    if (!fs.existsSync(file.source)) {
-      console.warn(`警告: 源文件不存在 ${file.source}`);
-      continue;
-    }
-    
-    // 从source读取UTF-8文件内容
-    const content = fs.readFileSync(file.source, 'utf8');
-    
-    // 尝试解析和重新格式化JSON，以确保格式正确
-    let formattedContent = content;
-    try {
-      const jsonObj = JSON.parse(content);
-      formattedContent = JSON.stringify(jsonObj, null, 2);
-      console.log(`JSON格式化成功: ${path.basename(file.source)}`);
-    } catch (jsonError) {
-      console.warn(`警告: JSON解析失败 ${path.basename(file.source)}, 将使用原始内容。错误:`, jsonError.message);
-    }
-    
-    // 以UTF-8编码写入到目标文件
-    fs.writeFileSync(file.target, formattedContent, 'utf8');
-    console.log(`✅ 文件编码修复完成: ${path.basename(file.target)}`);
-  } catch (error) {
-    console.error(`处理文件时出错 ${file.source}:`, error);
-  }
-}
-
-console.log('所有文件处理完成！'); 
+console.log('\n--- fix-encoding.js 脚本结束 ---'); 

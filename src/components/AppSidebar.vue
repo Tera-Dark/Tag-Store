@@ -9,9 +9,11 @@ import {
   SettingsOutline as SettingsIcon, 
   InformationCircleOutline as AboutIcon,
   ChevronBackOutline as CollapseIcon,
-  ChevronForwardOutline as ExpandIcon
+  ChevronForwardOutline as ExpandIcon,
+  AppsOutline as LibraryManagerIcon
 } from '@vicons/ionicons5';
 import { useRouter } from 'vue-router';
+import LibraryManagerDialog from './dialogs/LibraryManagerDialog.vue';
 
 // Define props
 defineProps<{ collapsed: boolean }>();
@@ -20,6 +22,15 @@ defineProps<{ collapsed: boolean }>();
 const emit = defineEmits(['toggle-sidebar']);
 
 const router = useRouter();
+
+// 展示标签库管理对话框
+const showLibraryManager = ref(false);
+
+// 打开库管理对话框
+const openLibraryManager = () => {
+  console.log("侧边栏中点击了管理标签库按钮");
+  showLibraryManager.value = true;
+};
 
 // Helper function to render icons
 function renderIcon(icon: any) {
@@ -116,6 +127,15 @@ const toggleSidebar = () => {
     <!-- 底部填充空间 -->
     <div class="flex-spacer"></div>
     
+    <!-- 标签库管理按钮 -->
+    <div class="library-manager-area">
+      <n-divider style="margin: 0;" />
+      <div class="library-manager-button" @click="openLibraryManager">
+        <n-icon :component="LibraryManagerIcon" size="18" />
+        <span v-if="!collapsed">管理标签库</span>
+      </div>
+    </div>
+    
     <!-- 底部收起按钮 -->
     <div class="collapse-area">
       <n-divider style="margin: 0;" />
@@ -124,6 +144,9 @@ const toggleSidebar = () => {
         <span v-if="!collapsed">收起侧栏</span>
       </div>
     </div>
+    
+    <!-- 标签库管理对话框 -->
+    <LibraryManagerDialog v-model:show="showLibraryManager" />
   </div>
 </template>
 
@@ -196,6 +219,31 @@ const toggleSidebar = () => {
 
 :deep(.n-menu-item-content__icon) {
   margin-right: 10px !important;
+}
+
+/* 标签库管理按钮样式 */
+.library-manager-area {
+  flex: 0 0 auto;
+}
+
+.library-manager-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.library-manager-button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #18a058; /* 悬停时使用绿色 */
+}
+
+.library-manager-button span {
+  margin-left: 8px;
+  font-size: 14px;
 }
 
 /* 收起按钮样式 */
