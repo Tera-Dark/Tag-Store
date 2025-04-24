@@ -38,11 +38,7 @@ import {
     TrashOutline as DeleteIcon,
     CloudUploadOutline as SavePresetIcon,
     FolderOpenOutline as GroupIcon,
-    FolderOpenOutline,
-    RefreshOutline as RefreshIcon,
-    ImageOutline as ImageIcon,
-    ChevronDownOutline as CollapseIcon,
-    AddCircleOutline as AddIcon
+    FolderOpenOutline
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';

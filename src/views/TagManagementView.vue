@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, h } from 'vue';
-import { NLayout, NLayoutSider, NLayoutContent, NSelect, NButton, NIcon, NSpace, NTooltip, NInput, NDropdown, NText, useMessage, NFlex, NGrid, NGi } from 'naive-ui';
+import { NLayout, NLayoutSider, NLayoutContent, NSelect, NButton, NIcon, NSpace, NTooltip, NInput, NDropdown, NText, NFlex } from 'naive-ui';
 import { 
   SettingsOutline as SettingsIcon,
   AddOutline as AddIcon, 
   SearchOutline as SearchIcon,
-  ChevronBackOutline as CollapseIcon,
   AlbumsOutline as CategoryIcon,
   PricetagsOutline as TagIcon,
-  EllipsisHorizontal as MoreActionsIcon,
-  FolderOpenOutline as GroupIcon,
   ListOutline as ManageGroupsIcon,
   MenuOutline as MenuIcon
 } from '@vicons/ionicons5';
@@ -23,12 +20,11 @@ import GroupManagerDialog from '../components/dialogs/GroupManagerDialog.vue';
 import { useLibraryStore } from '../stores/libraryStore';
 import { useTagStore } from '../stores/tagStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import type { Category, Group } from '../types/data';
+import type { Group } from '../types/data';
 
 const libraryStore = useLibraryStore();
 const tagStore = useTagStore();
 const settingsStore = useSettingsStore();
-const message = useMessage();
 
 // 搜索相关状态
 const searchValue = ref(tagStore.searchTerm);
@@ -76,11 +72,10 @@ const handleLibrarySwitch = (libraryId: string | null) => {
 
 // --- Responsive State ---
 const screenWidth = ref(window.innerWidth);
-const isSmallScreen = computed(() => screenWidth.value < 768); // Example breakpoint
+const isSmallScreen = computed(() => screenWidth.value < 768);
 
-// --- Sider State (Moved AFTER isSmallScreen definition) ---
+// --- Sider State ---
 const categorySiderCollapsed = ref(isSmallScreen.value); 
-const showSiderCollapseButton = computed(() => !isSmallScreen.value);
 
 // Watch screen size to auto-collapse/expand sider
 watch(isSmallScreen, (small) => {

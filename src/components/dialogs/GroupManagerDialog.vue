@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, defineProps, defineEmits, h } from 'vue';
-import type { VNode } from 'vue';
 import { 
     NModal, 
     NDataTable, 
@@ -8,7 +7,6 @@ import {
     NSpace, 
     useMessage, 
     useDialog, 
-    NInput, 
     NIcon,
     NTooltip
 } from 'naive-ui';

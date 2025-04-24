@@ -19,31 +19,26 @@ import {
     NCheckbox,
     NCollapse,
     NCollapseItem,
-    NSlider,
+    NScrollbar,
+    NEmpty,
     useMessage
 } from 'naive-ui';
 import { 
+    AddCircleOutline as AddIcon,
     CopyOutline as CopyIcon,
-    AddOutline as AddIcon,
-    ReloadOutline as ResetIcon,
-    PricetagsOutline as TagIcon,
-    SaveOutline as SaveIcon,
-    TrashOutline as ClearIcon,
-    ScaleOutline as WeightIcon,
-    ListOutline as ListIcon,
-    ShuffleOutline as RandomIcon,
-    TextOutline as InputIcon,
     SettingsOutline as SettingsIcon,
-    RefreshOutline as ResetAllIcon,
-    DocumentTextOutline as TemplateIcon,
-    ChevronDownOutline as CollapseIcon,
+    SaveOutline as SaveIcon,
+    CloseCircleOutline as ClearIcon,
     InformationCircleOutline as InfoIcon,
-    TimeOutline as HistoryIcon,
+    TimeOutline as HistoryIcon, 
+    TextOutline as InputIcon, 
+    ListOutline as ListIcon, 
     FolderOpenOutline as GroupIcon,
-    Star as StarIconFilled,
-    StarOutline as StarIconOutline,
-    AddCircleOutline as IncreaseIcon,
-    RemoveCircleOutline as DecreaseIcon
+    RefreshOutline as ResetAllIcon,
+    ShuffleOutline as RandomIcon,
+    AddCircleOutline as IncreaseIcon, 
+    RemoveCircleOutline as DecreaseIcon,
+    PricetagsOutline as TagIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -74,7 +69,6 @@ const isReady = ref(false);
 
 // --- 文本输入模式 ---
 const inputText = ref<string>('');
-const customTagsHolder = ref<Array<{id: string; name: string; keyword?: string; isFromLibrary?: boolean}>>([]);
 
 // --- 新增：文本转换高级设置状态 ---
 const extractionSettings = ref({
@@ -318,10 +312,6 @@ const groupedFilteredTags = computed(() => {
         .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || a.group.name.localeCompare(b.group.name));
 
     return sortedGroups;
-});
-
-const currentTemplate = computed(() => {
-    return templates.value[activeTemplate.value];
 });
 
 // 确保最小权重不超过最大权重
@@ -656,13 +646,13 @@ onMounted(() => {
     loadSettings();
     loadFavorites();
     isReady.value = true; // Assume ready since libraryStore handles loading
-    tagStore.setFilterCategoryId(selectedCategoryId.value); // Apply initial filter if any
+    tagStore.setFilter(null, selectedCategoryId.value); // Apply initial filter if any
     // Default expansion is now handled by the watcher
 });
 
 // --- 监听器 ---
 watch(selectedCategoryId, (newVal) => {
-  tagStore.setFilterCategoryId(newVal === '' ? null : newVal); // Now expects string | null
+  tagStore.setFilter(null, newVal === '' ? null : newVal); // Now expects string | null
 });
 
 // NEW: Watch groupedFilteredTags to set default expansion when data is ready
@@ -672,26 +662,6 @@ watch(groupedFilteredTags, (newGroups) => {
         defaultExpandedNames.value = [`group-${newGroups[0].group.id}`];
     }
 }, { deep: true }); // Use deep watch if necessary, though watching the computed length might be enough
-
-// 获取已选标签区域高度的方法
-const getSelectedTagsHeight = () => {
-  if (selectedTags.value.length === 0) return '100px';
-  if (selectedTags.value.length <= 8) return '250px';
-  if (selectedTags.value.length <= 16) return '400px';
-  return '500px';
-};
-
-// 获取标签的嵌套次数辅助函数
-const getTagNesting = (tagId: string): number => {
-    return (typeof bracketNesting.value[tagId] === 'number') ? bracketNesting.value[tagId] : 0;
-};
-
-// 添加截断文本的工具函数
-const truncateText = (text: string, maxLength: number) => {
-    if (!text) return '';
-    if (text.length <= maxLength) return text;
-    return text.slice(0, maxLength) + '...';
-};
 
 // 修改全局嵌套控制函数，增加和减少全局嵌套次数
 const increaseGlobalNesting = () => {
@@ -712,15 +682,6 @@ const decreaseGlobalNesting = () => {
 watch(() => tagStore.categories, (newCategories) => {
   console.log('Watcher: tagStore.categories changed:', newCategories);
 }, { deep: true });
-
-const toggleFavorite = (tagId: string) => {
-    if (favoriteTagIds.value.has(tagId)) {
-        favoriteTagIds.value.delete(tagId);
-    } else {
-        favoriteTagIds.value.add(tagId);
-    }
-    // saveFavorites(); // Watcher handles saving
-};
 
 // --- Load/Save Favorites (Ensure these exist if needed) ---
 const FAVORITES_STORAGE_KEY = 'weightGenFavorites'; // Example key
@@ -768,6 +729,20 @@ const toggleSelectionFromLibrary = (tag: Tag) => {
 const actionBarStyle = computed(() => ({
   left: settingsStore.isSidebarCollapsed ? '64px' : '240px' 
 }));
+
+// Save prompt as a template
+/* // Commented out usage of WeightTemplate
+const saveTemplate = (template: WeightTemplate) => {
+    // ... 
+};
+*/
+
+// Export prompt to file
+/* // Commented out usage of saveAs
+const exportPromptToFile = () => {
+    // ...
+};
+*/
 </script>
 
 <template>
@@ -962,7 +937,7 @@ const actionBarStyle = computed(() => ({
                         <n-tag v-if="selectedTags.length > 0" type="success" size="tiny">{{ selectedTags.length }} 项</n-tag>
                          <!-- Removed Layout Toggle -->
                         <n-button text size="tiny" @click="resetWeights" title="重置权重">
-                            <template #icon><n-icon :component="ResetIcon"/></template>
+                            <template #icon><n-icon :component="ResetAllIcon"/></template>
                   </n-button>
                          <n-button text size="tiny" @click="resetAllTags" title="重置权重和括号">
                             <template #icon><n-icon :component="ResetAllIcon"/></template>

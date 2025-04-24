@@ -2,21 +2,14 @@
 import { ref, computed, watch, onMounted, h } from 'vue';
 import { 
     NPageHeader, 
-    NInput, 
-    NButton, 
+    NCard, 
     NIcon, 
+    NButton, 
     NSpace, 
-    NTag, 
-    NFlex,
-    useMessage, 
-    NLayout,
-    NLayoutSider,
-    NLayoutContent,
-    NMenu,
-    NScrollbar,
-    NEmpty,
+    NEmpty, 
     NDivider,
-    NCard,
+    NScrollbar,
+    useMessage
 } from 'naive-ui';
 import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, StarOutline as StarIconOutline, Star as StarIconFilled, AddCircleOutline as AddIcon, PricetagsOutline as CategoryIcon, FolderOpenOutline as GroupIcon, RemoveCircleOutline as RemoveIcon } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
@@ -245,15 +238,6 @@ const handleBack = () => {
     router.push('/toolbox'); // Assuming toolbox route exists
 };
 
-// Handle main category/favorites selection from sidebar menu
-const handleCategorySelect = (key: string) => {
-    // Only update selectedCategoryId if it's NOT a group key
-    if (!key.startsWith('group-')) {
-        selectedCategoryId.value = key;
-    }
-    // If it IS a group key, do nothing here, let n-menu handle expand/collapse
-};
-
 // Select first category on initial load if none selected
 watch(selectedCategoryId, (newVal, _oldVal) => {
     if (newVal === undefined && categoryMenuOptions.value.length > 0) {
@@ -266,17 +250,6 @@ watch(selectedCategoryId, (newVal, _oldVal) => {
     }
 }, { immediate: true });
 
-// Restore copyEditablePrompt method
-const copyEditablePrompt = () => {
-    if (!editablePromptText.value) {
-        message.warning('编辑区是空的！');
-        return;
-    }
-    navigator.clipboard.writeText(editablePromptText.value)
-        .then(() => message.success('编辑区内容已复制到剪贴板'))
-        .catch(() => message.error('复制失败'));
-};
-
 // Restore watcher for selectedTags updating editablePromptText
 watch(selectedTags, (newTags) => {
     editablePromptText.value = newTags.map(tag => tag.name).join(', ');
@@ -286,27 +259,6 @@ watch(selectedTags, (newTags) => {
 onMounted(() => {
     loadFavorites();
 });
-
-// Copy single tag (adjust format as needed)
-const copySingleTag = (tag: Tag) => {
-    const textToCopy = tag.keyword || tag.name;
-    navigator.clipboard.writeText(textToCopy)
-        .then(() => message.success(`标签 [${tag.name}] 已复制`))
-        .catch(() => message.error('复制失败'));
-};
-
-// Add method to add all currently visible tags
-const addAllVisibleTags = () => {
-    const tagsToAdd = currentTagsToShow.value.filter(tag => 
-        !selectedTags.value.some(selected => selected.id === tag.id)
-    );
-    if (tagsToAdd.length > 0) {
-        selectedTags.value.push(...tagsToAdd);
-        message.success(`已添加 ${tagsToAdd.length} 个标签`);
-    } else {
-        message.info('当前视图下的所有标签均已在购物车中');
-    }
-};
 
 // Modified: Add Tag to Cart (used by toggle function)
 const addTagToCart = (tag: Tag) => {
@@ -335,6 +287,50 @@ const toggleTagInCart = (tag: Tag) => {
         addTagToCart(tag);
     }
 };
+
+// Function to handle category selection (if needed for filtering/display)
+/* // Removed unused handleCategorySelect
+const handleCategorySelect = (key: string) => {
+  console.log("Category selected:", key);
+  // Potentially set a filter or update display based on category
+};
+*/
+
+// Copy the editable prompt to clipboard
+/* // Removed unused copyEditablePrompt
+const copyEditablePrompt = () => {
+  if (finalPromptTextareaRef.value) {
+      navigator.clipboard.writeText(finalPromptTextareaRef.value.textareaElRef.value || '')
+          .then(() => message.success('提示词已复制到剪贴板'))
+          .catch(err => message.error('复制失败: ' + err));
+  } else {
+       navigator.clipboard.writeText(promptSegmentsString.value)
+          .then(() => message.success('提示词已复制到剪贴板'))
+          .catch(err => message.error('复制失败: ' + err));
+  }
+};
+*/
+
+// Copy single tag (e.g., for quick use elsewhere)
+/* // Removed unused copySingleTag
+const copySingleTag = (tag: Tag) => {
+  const textToCopy = tag.keyword || tag.name;
+  navigator.clipboard.writeText(textToCopy)
+      .then(() => message.success(`标签 "${tag.name}" 已复制`))
+      .catch(err => message.error('复制失败: ' + err));
+};
+*/
+
+// Add all visible tags in the current category/view to the cart
+/* // Removed unused addAllVisibleTags
+const addAllVisibleTags = () => {
+    // This needs access to the currently displayed tags (e.g., from TagGrid if used)
+    // For now, let's assume we have `visibleTags` computed property or ref
+    // visibleTags.value.forEach(tag => addTagToCart(tag));
+    console.warn("Add All Visible Tags - Not fully implemented, needs visible tags data.");
+    message.info("已添加所有可见标签（待实现）");
+};
+*/
 
 </script>
 

@@ -4,13 +4,15 @@ import { NModal, NButton, NSpin, useMessage } from 'naive-ui';
 import CategoryForm from '../forms/CategoryForm.vue';
 import type { Category } from '../../types/data';
 
-// --- Types --- 
+// --- Types ---
+/* // Removed unused CategoryFormData interface
 interface CategoryFormData {
   name: string;
-  // Add other fields if needed
+  groupId: string | null; // Add groupId here
 }
+*/
 
-// --- Props --- 
+// --- Props ---
 interface Props {
   show: boolean;
   mode: 'add' | 'edit';
@@ -25,24 +27,24 @@ interface EmittedData {
   categoryId?: string;
 }
 
-// --- Emits --- 
+// --- Emits ---
 const emit = defineEmits<{ 
   (e: 'update:show', value: boolean): void;
   (e: 'submit', data: EmittedData): void; 
 }>();
 
-// --- Refs & State --- 
+// --- Refs & State ---
 const formRef = ref<InstanceType<typeof CategoryForm> | null>(null);
 const isProcessing = ref(false);
 const message = useMessage();
 
-// --- Computed --- 
+// --- Computed ---
 const title = computed(() => (props.mode === 'add' ? '添加新分类' : '编辑分类'));
 const initialFormData = computed(() => {
   return props.mode === 'edit' && props.categoryToEdit ? { name: props.categoryToEdit.name } : undefined;
 });
 
-// --- Methods --- 
+// --- Methods ---
 const handleClose = () => {
   if (isProcessing.value) return; // Prevent closing while processing
   emit('update:show', false);

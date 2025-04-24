@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, NFlex, NButtonGroup } from 'naive-ui';
+import { computed, ref, watch, onMounted, nextTick, onUnmounted } from 'vue';
+import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, NFlex, NButtonGroup, NSpin } from 'naive-ui';
 import { useTagStore } from '../stores/tagStore';
 import TagCard from './TagCard.vue';
 import TagDialog from './dialogs/TagDialog.vue';
@@ -11,8 +11,195 @@ const tagStore = useTagStore();
 const message = useMessage();
 const dialog = useDialog();
 
-const filteredTags = computed(() => tagStore.filteredTags);
+const allFilteredTags = computed(() => tagStore.filteredTags);
 const isLoading = computed(() => tagStore.isLoading);
+
+// 每次显示的标签数量
+const PAGE_SIZE = 20;
+// 已加载的标签数量
+const displayCount = ref(PAGE_SIZE);
+// 是否正在加载更多
+const loadingMore = ref(false);
+
+// 当前显示的标签
+const displayedTags = computed(() => {
+  return allFilteredTags.value.slice(0, displayCount.value);
+});
+
+// 是否还有更多标签可加载
+const hasMoreTags = computed(() => {
+  return displayCount.value < allFilteredTags.value.length;
+});
+
+// 加载更多标签
+const loadMoreTags = async () => {
+  if (loadingMore.value || !hasMoreTags.value) return;
+  
+  loadingMore.value = true;
+  console.log('加载更多标签，当前显示:', displayCount.value, '总数:', allFilteredTags.value.length);
+  
+  // 使用较短的延迟以提高响应速度
+  setTimeout(() => {
+    displayCount.value += PAGE_SIZE;
+    loadingMore.value = false;
+    console.log('加载完成，现在显示:', displayCount.value, '总数:', allFilteredTags.value.length);
+  }, 200);
+};
+
+// 获取父容器元素（.content-body）
+const getScrollContainer = (): HTMLElement => {
+  // 尝试获取.content-body容器
+  const container = document.querySelector('.content-body') as HTMLElement;
+  if (container) {
+    console.log('找到滚动容器: .content-body');
+    return container;
+  }
+  console.warn('未找到.content-body容器，将使用document.documentElement');
+  return document.documentElement;
+};
+
+// 使用IntersectionObserver API检测底部元素是否可见
+const loaderRef = ref<HTMLElement | null>(null);
+const gridContainerRef = ref<HTMLElement | null>(null);
+let observer: IntersectionObserver | null = null;
+
+const setupIntersectionObserver = () => {
+  // 如果浏览器支持IntersectionObserver
+  if ('IntersectionObserver' in window) {
+    // 获取滚动容器
+    const scrollContainer = getScrollContainer();
+    
+    // 创建一个新的观察器实例，指定root为滚动容器
+    observer = new IntersectionObserver((entries) => {
+      const [entry] = entries;
+      // 如果底部元素进入视口，且有更多标签可加载
+      if (entry.isIntersecting && hasMoreTags.value && !loadingMore.value) {
+        console.log('底部元素可见，触发加载');
+        loadMoreTags();
+      }
+    }, {
+      // root设置为滚动容器
+      root: scrollContainer === document.documentElement ? null : scrollContainer,
+      // 提前200px触发
+      rootMargin: '200px 0px',
+      // threshold: 0 表示目标元素的任何部分进入视口就触发
+      threshold: 0
+    });
+
+    // 确保DOM元素已经渲染
+    nextTick(() => {
+      // 如果ref引用的元素存在，开始观察它
+      if (loaderRef.value && observer) {
+        observer.observe(loaderRef.value);
+        console.log('开始观察底部加载元素', loaderRef.value);
+      } else {
+        console.warn('未找到loader元素或observer未初始化');
+      }
+    });
+  } else {
+    // 如果浏览器不支持IntersectionObserver，回退到传统的滚动监听方法
+    console.log('浏览器不支持IntersectionObserver，使用传统的滚动监听');
+    setupScrollListener();
+  }
+};
+
+// 传统的滚动监听方法(作为备用)
+const setupScrollListener = () => {
+  // 获取滚动容器
+  const scrollContainer = getScrollContainer();
+  
+  const handleScroll = () => {
+    if (!hasMoreTags.value || loadingMore.value) return;
+    
+    // 获取容器的滚动信息
+    const scrollHeight = scrollContainer.scrollHeight;
+    const scrollTop = scrollContainer.scrollTop;
+    const clientHeight = scrollContainer.clientHeight;
+    
+    // 当滚动到距离底部50px时就开始加载更多
+    if (scrollHeight - scrollTop - clientHeight < 50) {
+      console.log('检测到滚动到底部，触发加载', {
+        scrollHeight,
+        scrollTop,
+        clientHeight,
+        distance: scrollHeight - scrollTop - clientHeight
+      });
+      loadMoreTags();
+    }
+  };
+  
+  // 添加滚动事件监听到容器
+  scrollContainer.addEventListener('scroll', handleScroll);
+  
+  // 组件卸载时移除监听器
+  onUnmounted(() => {
+    scrollContainer.removeEventListener('scroll', handleScroll);
+  });
+};
+
+// 手动触发检查是否需要加载更多内容
+const checkIfNeedMoreContent = () => {
+  if (!hasMoreTags.value || loadingMore.value) return;
+  
+  // 获取滚动容器
+  const scrollContainer = getScrollContainer();
+  
+  // 检查内容高度是否足够填满滚动容器
+  const scrollHeight = scrollContainer.scrollHeight;
+  const clientHeight = scrollContainer.clientHeight;
+  
+  console.log('检查是否需要更多内容:', {
+    scrollHeight,
+    clientHeight,
+    hasMoreTags: hasMoreTags.value
+  });
+  
+  // 如果内容高度小于等于容器高度，且还有更多内容可加载，则加载更多
+  if (scrollHeight <= clientHeight && hasMoreTags.value) {
+    console.log('内容不足以填满容器，自动加载更多');
+    loadMoreTags();
+  }
+};
+
+// 组件挂载后设置观察器
+onMounted(() => {
+  console.log('TagGrid组件已挂载');
+  setupIntersectionObserver();
+  
+  // 延迟一点，等待布局稳定后检查是否需要加载更多
+  setTimeout(() => {
+    checkIfNeedMoreContent();
+  }, 300);
+});
+
+// 组件卸载时清理观察器
+onUnmounted(() => {
+  if (observer) {
+    observer.disconnect();
+    console.log('断开观察器连接');
+  }
+});
+
+// 监听标签过滤条件变化，重置加载计数并重新设置观察器
+watch([() => tagStore.filterCategoryId, () => tagStore.searchTerm], () => {
+  displayCount.value = PAGE_SIZE;
+  
+  // 重新连接观察器
+  nextTick(() => {
+    if (observer) {
+      observer.disconnect();
+      if (loaderRef.value) {
+        observer.observe(loaderRef.value);
+        console.log('过滤条件变化，重新连接观察器');
+      }
+    }
+    
+    // 延迟一点检查内容是否足够
+    setTimeout(() => {
+      checkIfNeedMoreContent();
+    }, 300);
+  });
+}, { immediate: true });
 
 // --- Selection State ---
 const selectedTagIds = ref<Set<string>>(new Set());
@@ -22,7 +209,7 @@ const hasSelection = computed(() => selectedTagIds.value.size > 0);
 
 // --- Computed properties for Select All checkbox state ---
 const isAllSelected = computed(() => {
-    const currentTagIds = filteredTags.value.map(tag => tag.id);
+    const currentTagIds = displayedTags.value.map(tag => tag.id);
     return currentTagIds.length > 0 && currentTagIds.every(id => selectedTagIds.value.has(id));
 });
 
@@ -43,8 +230,8 @@ const handleSelectionChange = (payload: { id: string; selected: boolean }) => {
 
 const handleSelectAllChange = (checked: boolean) => {
     if (checked) {
-        // Select all currently filtered tags
-        const currentTagIds = filteredTags.value.map(tag => tag.id);
+        // Select all currently displayed tags
+        const currentTagIds = displayedTags.value.map(tag => tag.id);
         selectedTagIds.value = new Set(currentTagIds);
     } else {
         // Deselect all
@@ -56,7 +243,7 @@ const handleSelectAllChange = (checked: boolean) => {
 watch(() => tagStore.filterCategoryId, () => {
     selectedTagIds.value.clear(); // Clear selection when category changes
 });
-watch(filteredTags, () => {
+watch(displayedTags, () => {
     // Optional: More complex logic could try to preserve selection 
     // if the same tags are still present after search term change, but clearing is simpler.
     if (tagStore.searchTerm) { // Clear selection if search term is active causing filter changes
@@ -150,10 +337,17 @@ const handleBatchMove = () => {
     showBatchMoveDialog.value = true;
 };
 
+// 手动加载更多标签
+const manualLoadMore = () => {
+  if (loadingMore.value || !hasMoreTags.value) return;
+  console.log('手动加载更多标签');
+  loadMoreTags();
+};
+
 </script>
 
 <template>
-  <div class="tag-grid-container">
+  <div class="tag-grid-container" ref="gridContainerRef">
     <!-- Action area - Use NFlex for better responsive controls -->
     <n-flex class="controls-section" justify="space-between" align="center" :wrap="true">
       <!-- Left side controls -->
@@ -166,7 +360,7 @@ const handleBatchMove = () => {
           />
         </div>
         <n-text v-if="!hasSelection" class="tags-count">
-            {{ filteredTags.length }} 个标签
+            {{ allFilteredTags.length }} 个标签 (已显示 {{ displayedTags.length }} 个)
         </n-text>
         <n-text v-else class="tags-count selected-text">
             已选择 {{ selectedTagIds.size }} 个标签
@@ -192,10 +386,10 @@ const handleBatchMove = () => {
       </n-space>
     </n-flex>
 
-    <div class="grid-wrapper">
+    <div class="grid-wrapper" :class="{'has-more': hasMoreTags}">
       <!-- Wrap Grid/Empty state in NSpin -->
       <n-spin :show="isLoading">
-        <n-empty v-if="!isLoading && filteredTags.length === 0" description="没有找到标签" style="margin-top: 40px;">
+        <n-empty v-if="!isLoading && allFilteredTags.length === 0" description="没有找到标签" style="margin-top: 40px;">
           <template #extra>
             <n-button size="small" @click="() => { /* TODO: Signal parent or handle context */ }" :disabled="!tagStore.filterCategoryId">
               在此分类下创建标签
@@ -205,13 +399,13 @@ const handleBatchMove = () => {
       
         <!-- 使用更均匀的网格布局 -->
         <n-grid 
-          v-if="!isLoading && filteredTags.length > 0" 
+          v-if="!isLoading && displayedTags.length > 0" 
           :x-gap="16" 
           :y-gap="16" 
           cols="1 s:2 m:3 l:4 xl:5 2xl:6"
           responsive="screen"
         >
-          <n-gi v-for="tag in filteredTags" :key="tag.id">
+          <n-gi v-for="tag in displayedTags" :key="tag.id">
             <TagCard 
               :tag="tag" 
               :selected="selectedTagIds.has(tag.id)"
@@ -229,9 +423,32 @@ const handleBatchMove = () => {
       </n-spin>
     </div>
 
-    <!-- 分页区域 (未来实现分页) -->
-    <div v-if="filteredTags.length > 0" class="pagination-area">
-      <n-text class="all-loaded">已加载全部标签</n-text>
+    <!-- 分页区域 (滚动加载更多) -->
+    <div ref="loaderRef" class="loader-area" v-show="displayedTags.length > 0">
+      <n-space vertical size="small" style="align-items: center;">
+        <n-spin size="small" :show="loadingMore">
+          <div class="loading-indicator" v-if="hasMoreTags">
+            <n-text class="more-tags" v-if="!loadingMore">
+              {{ displayedTags.length }}/{{ allFilteredTags.length }}
+            </n-text>
+            <n-text class="more-tags" v-else>
+              正在加载中...
+            </n-text>
+          </div>
+          <n-text v-else class="all-loaded">
+            已加载全部 {{ allFilteredTags.length }} 个标签
+          </n-text>
+        </n-spin>
+        <n-button 
+          v-if="hasMoreTags" 
+          @click="manualLoadMore" 
+          size="small" 
+          type="primary"
+          ghost
+          :loading="loadingMore">
+          点击加载更多
+        </n-button>
+      </n-space>
     </div>
 
      <!-- Tag Add/Edit Dialog -->
@@ -293,17 +510,30 @@ const handleBatchMove = () => {
   margin-right: 8px;
 }
 
-.pagination-area {
+.loader-area {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 0;
   text-align: center;
-  padding: 16px 0;
-  color: var(--n-text-color-disabled);
+  min-height: 50px;
+  width: 100%;
 }
 
-.all-loaded {
-  display: block;
-  padding: 10px;
+.loading-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 16px;
+  background: var(--n-color-hover);
+  transition: all 0.3s ease;
+}
+
+.more-tags, .all-loaded {
   color: var(--n-text-color-3);
-  font-size: 14px;
+  font-size: 0.9rem;
 }
 
 /* 确保在暗色模式下的适配 */
@@ -322,5 +552,33 @@ const handleBatchMove = () => {
     padding-bottom: 8px;
     margin-bottom: 12px;
   }
+}
+
+/* 添加一个渐入效果 */
+.n-gi {
+  animation: fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 添加一个渐变指示器在底部，提示用户继续滚动 */
+.grid-wrapper::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to top, var(--n-color), transparent);
+  opacity: 0.2;
+  pointer-events: none;
+  display: none;
+}
+
+.grid-wrapper.has-more::after {
+  display: block;
 }
 </style> 

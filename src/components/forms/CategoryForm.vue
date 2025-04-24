@@ -2,8 +2,8 @@
 import { ref, reactive, watch, defineProps, computed } from 'vue';
 import { NForm, NFormItem, NInput, NSelect } from 'naive-ui';
 import type { FormInst, FormRules } from 'naive-ui';
-import type { Category, Group } from '../../types/data';
 import { useTagStore } from '../../stores/tagStore';
+import type { Category } from '../../types/data';
 
 // --- Props --- 
 interface Props {
