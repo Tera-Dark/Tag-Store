@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { h, ref, defineProps, watch } from 'vue';
-import { NMenu, NIcon, NDivider, NTooltip } from 'naive-ui';
+import { NMenu, NIcon, NTooltip } from 'naive-ui';
 import type { MenuOption } from 'naive-ui';
 import { 
   GridOutline as DashboardIcon,
@@ -100,22 +100,6 @@ const handleMenuSelect = (key: string) => {
 const toggleSidebar = () => {
   emit('toggle-sidebar');
 };
-
-// 安全获取菜单项的 icon 组件
-function getIconComponent(item: MenuOption) {
-  try {
-    if (item.icon && typeof item.icon === 'function') {
-      const vnode = item.icon();
-      // 只处理 VNode（含有 shapeFlag），忽略 VNodeArrayChildren
-      if (vnode && typeof vnode === 'object' && 'type' in vnode && vnode.type && typeof vnode.type !== 'string' && vnode.type !== undefined && vnode.type !== null) {
-        return vnode.type as any;
-      }
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
 </script>
 
 <template>
@@ -142,7 +126,7 @@ function getIconComponent(item: MenuOption) {
         :indent="16"
         @update:value="handleMenuSelect"
         inverted
-        :render-label="collapsed ? (option => '') : undefined"
+        :render-label="collapsed ? (() => '') : undefined"
       />
     </div>
     <div class="sidebar-pro-spacer"></div>

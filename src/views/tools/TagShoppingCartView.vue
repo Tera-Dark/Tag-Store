@@ -35,12 +35,7 @@ const tagSearchTerm = ref<string>('');
 const cartTags = ref<Tag[]>([]);
 const cartTagWeights = ref<{[id: string]: number}>({});
 const cartTagNotes = ref<{[id: string]: string}>({});
-const cartFavorites = ref<Set<string>>(new Set());
-const cartHistory = ref<Tag[][]>([]);
-const cartViewMode = ref<'grid'|'list'>('grid');
-const cartSearch = ref('');
 const cartResultText = ref('');
-const cartDragging = ref(false);
 
 // --- Computed Properties ---
 

@@ -10,12 +10,8 @@ import {
     NListItem, 
     NThing, 
     NIcon,
-    NPageHeader,
     NDivider,
     NCard,
-    NGrid,
-    NGi,
-    NTag,
     NCheckbox,
     NCollapse,
     NCollapseItem,
@@ -24,25 +20,15 @@ import {
     useMessage
 } from 'naive-ui';
 import { 
-    AddCircleOutline as AddIcon,
     CopyOutline as CopyIcon,
-    SettingsOutline as SettingsIcon,
     SaveOutline as SaveIcon,
     CloseCircleOutline as ClearIcon,
-    InformationCircleOutline as InfoIcon,
-    TimeOutline as HistoryIcon, 
-    TextOutline as InputIcon, 
     ListOutline as ListIcon, 
-    FolderOpenOutline as GroupIcon,
-    RefreshOutline as ResetAllIcon,
     ShuffleOutline as RandomIcon,
-    AddCircleOutline as IncreaseIcon, 
-    RemoveCircleOutline as DecreaseIcon,
     PricetagsOutline as TagIcon,
     ArrowBackOutline as ArrowBackIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import type { Tag, Group, Category } from '../../types/data';
 import { useRouter } from 'vue-router';
 
@@ -58,7 +44,6 @@ type TemplateConfig = {
 const tagStore = useTagStore();
 const message = useMessage();
 const router = useRouter();
-const settingsStore = useSettingsStore();
 
 // --- 基本组件状态 ---
 const selectedCategoryId = ref<string | null>(null);
@@ -79,7 +64,6 @@ const extractionSettings = ref({
   caseSensitiveMatch: false, // 默认不区分大小写匹配库
   duplicateHandling: 'keepFirst' as 'keepFirst' | 'keepAll' | 'mergeWeights' // 默认去重（保留第一个）
 });
-const showExtractionSettings = ref(false); // 控制高级设置显隐
 const showHistory = ref(false); // Control history visibility
 
 // --- 新增：历史记录状态 ---
@@ -384,7 +368,7 @@ const parseTagsFromText = (text: string): Array<{id: string; name: string; keywo
     let match;
     let idx = 0;
     while ((match = tagPattern.exec(text)) !== null) {
-        let [full, leftBrackets, name, weight, rightBrackets] = match;
+        let [, leftBrackets, name, weight, rightBrackets] = match;
         name = name?.trim();
         if (!name) continue;
         // 判断括号类型和嵌套层数
@@ -532,22 +516,6 @@ const applyRandomWeights = () => {
     message.success('已应用随机权重');
 };
 
-// 应用括号类型到所有标签
-const applyBracketToAll = (bracketType: BracketType) => {
-    if (selectedTags.value.length === 0) return;
-    selectedTags.value.forEach(tag => {
-        tagBrackets.value[tag.id] = bracketType;
-    });
-    message.success(`已为所有标签应用 ${bracketTypes.find(b => b.value === bracketType)?.label || '无括号'}`);
-    generatePrompt();
-};
-
-// Simplified toggleBracket - just sets the type
-const toggleBracket = (tagId: string, bracketType: BracketType) => {
-    tagBrackets.value[tagId] = tagBrackets.value[tagId] === bracketType ? defaultBracket.value : bracketType;
-    generatePrompt();
-};
-
 // 重构 generatePrompt 函数以实现新的括号和格式化逻辑
 const generatePrompt = () => {
     if (!selectedTags.value || selectedTags.value.length === 0) { // Check if selectedTags exists
@@ -616,21 +584,6 @@ const copyToClipboard = () => {
             console.error('复制失败:', err);
             message.error('复制失败');
         });
-};
-
-const applyWeightPreset = (presetKey: string | number) => { 
-    const preset = String(presetKey); 
-    selectedTags.value.forEach(tag => {
-        if (Object.prototype.hasOwnProperty.call(weightPresets.value, preset)) {
-            const presetTypedKey = preset as keyof typeof weightPresets.value;
-            const presetWeight = weightPresets.value[presetTypedKey] ?? defaultWeight.value;
-            const formattedValue = formatNumberByDecimalPlaces(presetWeight, decimalPlaces.value);
-            tagWeights.value[tag.id] = formattedValue;
-        } else {
-             console.warn(`Invalid preset key used: ${preset}`);
-        }
-    });
-    generatePrompt();
 };
 
 const resetWeights = () => {
@@ -723,25 +676,6 @@ const toggleSelectionFromLibrary = (tag: Tag) => {
         addTag(tag);
     }
 };
-
-// --- Computed style for action bar ---
-const actionBarStyle = computed(() => ({
-  left: settingsStore.isSidebarCollapsed ? '64px' : '240px' 
-}));
-
-// Save prompt as a template
-/* // Commented out usage of WeightTemplate
-const saveTemplate = (template: WeightTemplate) => {
-    // ... 
-};
-*/
-
-// Export prompt to file
-/* // Commented out usage of saveAs
-const exportPromptToFile = () => {
-    // ...
-};
-*/
 
 // 1. 新增 selectedTagsViewMode 控制视图切换，默认 grid
 const selectedTagsViewMode = ref<'grid' | 'list'>('grid');

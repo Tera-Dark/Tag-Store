@@ -8,18 +8,10 @@ import {
     NButton, 
     NSpace, 
     NIcon,
-    NPageHeader,
     NDivider,
-    NCard,
-    NGrid,
-    NGi,
-    NTag,
-    NTooltip,
     NCheckbox,
     NRadioGroup,
     NRadio,
-    NTabs,
-    NTabPane,
     useMessage,
     NModal,
     NPopconfirm,
@@ -27,30 +19,19 @@ import {
     NCollapseItem
 } from 'naive-ui';
 import { 
-    CopyOutline as CopyIcon,
-    ShuffleOutline as ShuffleIcon,
-    ReloadOutline as ResetIcon,
     PricetagsOutline as TagIcon,
-    TimeOutline as HistoryIcon,
-    FlashOutline as LeastUsedIcon,
-    TrendingUpOutline as MostUsedIcon,
     LockClosedOutline as LockIcon,
     LockOpenOutline as UnlockIcon,
-    SyncOutline as RedrawIcon,
-    TrashOutline as DeleteIcon,
-    CloudUploadOutline as SavePresetIcon,
     FolderOpenOutline as GroupIcon,
     FolderOpenOutline,
     ArrowBackOutline as ArrowBackIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
-import { useLibraryStore } from '../../stores/libraryStore';
 import type { Tag, Group, Category, DrawHistoryEntry, HistorySettings, PresetSettings } from '../../types/data';
 import { useRouter } from 'vue-router';
 import { useSettingsStore } from '../../stores/settingsStore';
 
 const tagStore = useTagStore();
-const libraryStore = useLibraryStore();
 const message = useMessage();
 const router = useRouter();
 const settingsStore = useSettingsStore();
@@ -84,7 +65,6 @@ const ensureEachSelectedCategory = ref<boolean>(false);
 const noDuplicates = ref<boolean>(true);
 const drawMethod = ref<string>('random');
 const saveHistory = ref<boolean>(true);
-const currentTab = ref<string>('basic');
 
 // --- 标签使用统计 ---
 const tagUsageCounts = ref<Record<string, number>>({});
@@ -94,11 +74,6 @@ const historyItems = ref<DrawHistoryEntry[]>([]);
 
 // --- 动画控制 ---
 const showResults = ref(false);
-
-// --- Computed style for action bar ---
-const actionBarStyle = computed(() => ({
-  left: settingsStore.isSidebarCollapsed ? '64px' : '240px'
-}));
 
 // --- 计算属性 ---
 const treeData = computed(() => {
@@ -179,10 +154,6 @@ const explicitlySelectedCategoryIds = computed((): string[] => {
 const disableEnsureEachSelected = computed(() => {
     const keys = selectedNodeKeys.value;
     return !keys || keys.length === 0 || keys.includes(ALL_CATEGORIES_KEY) || explicitlySelectedCategoryIds.value.length === 0;
-});
-
-const currentLibraryName = computed(() => {
-    return libraryStore.activeLibrary?.name || '无活动库';
 });
 
 const categoryCount = computed(() => {
@@ -540,26 +511,6 @@ const resetUsageCounts = () => {
     message.success('使用统计已重置');
 };
 
-// 基本控制方法
-const resetForm = () => {
-    selectedNodeKeys.value = [];
-    numTagsToDraw.value = 5;
-    exclusionKeywords.value = '';
-    message.info('设置已重置');
-};
-
-const increaseCount = () => {
-    if (numTagsToDraw.value < maxTagsToDraw.value) {
-        numTagsToDraw.value++;
-    }
-};
-
-const decreaseCount = () => {
-    if (numTagsToDraw.value > minTagsToDraw.value) {
-        numTagsToDraw.value--;
-    }
-};
-
 // 复制结果
 const copyResults = (contentOnly = false) => {
     if (drawnTags.value.length === 0) {
@@ -600,11 +551,6 @@ const handleBack = () => {
 const formatTime = (isoString: string) => {
     const date = new Date(isoString);
     return date.toLocaleString();
-};
-
-// 获取标签使用次数
-const getTagUsageCount = (tagId: string) => {
-    return tagUsageCounts.value[tagId] || 0;
 };
 
 // 初始化

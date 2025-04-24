@@ -8,9 +8,7 @@ import {
     NGi, 
     NStatistic, 
     NIcon,
-    NButton,
-    NProgress,
-    NText
+    NButton
 } from 'naive-ui';
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';

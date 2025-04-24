@@ -2,8 +2,8 @@
 import { h, ref, computed, defineProps } from 'vue';
 import type { VNodeChild } from 'vue';
 import { useTagStore } from '../stores/tagStore';
-import { NMenu, NIcon, NButton, NDropdown, useMessage, useDialog } from 'naive-ui';
-import type { MenuOption, DropdownOption } from 'naive-ui';
+import { NIcon, NButton, NDropdown, useMessage, useDialog } from 'naive-ui';
+import type { MenuOption } from 'naive-ui';
 import CategoryDialog from './dialogs/CategoryDialog.vue';
 import GroupDialog from './dialogs/GroupDialog.vue';
 import MoveCategoryDialog from './dialogs/MoveCategoryDialog.vue';
@@ -46,48 +46,6 @@ const categoryToMove = ref<Category | null>(null);
 // Icon rendering function
 function renderVIcon(icon: any): () => VNodeChild {
   return () => h(NIcon, null, { default: () => h(icon) });
-}
-
-// Render appropriate icon based on type
-function renderMenuIcon(option: MenuOption) {
-  if (option.key === 'all') return renderVIcon(ListIcon)();
-  if (option.type === 'group') return renderVIcon(GroupIcon)();
-  return renderVIcon(CategoryIcon)(); 
-}
-
-// Render label with dropdown for BOTH categories and groups
-function renderMenuLabel(option: MenuOption) {
-  const isAll = option.key === 'all';
-  const isGroup = option.type === 'group';
-
-  if (!isAll) { // Add dropdown for groups and categories
-    const dropdownOptions: DropdownOption[] = [];
-    if (isGroup) {
-        dropdownOptions.push({ label: '编辑分组', key: 'edit-group', icon: renderVIcon(EditIcon) });
-        dropdownOptions.push({ label: '删除分组', key: 'delete-group', icon: renderVIcon(DeleteIcon), props: { style: 'color: red;' } });
-    } else {
-        dropdownOptions.push({ label: '编辑分类', key: 'edit-category', icon: renderVIcon(EditIcon) });
-        dropdownOptions.push({ label: '移动分类', key: 'move-category', icon: renderVIcon(MoveIcon) });
-        dropdownOptions.push({ label: '删除分类', key: 'delete-category', icon: renderVIcon(DeleteIcon), props: { style: 'color: red;' } });
-    }
-
-    return h('div', { style: 'display: flex; justify-content: space-between; align-items: center; width: 100%;' }, [
-      h('span', { style: 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' }, option.label as string),
-      h(NDropdown, {
-        trigger: 'click',
-        options: dropdownOptions,
-        placement: 'right-start',
-        onClickoutside: (e: MouseEvent) => { e.stopPropagation(); }, 
-        onSelect: (key) => handleActionSelect(key as string, option.key as string),
-        style: 'margin-left: 8px;'
-      }, {
-        default: () => h(NButton, { text: true, size: 'tiny', style: 'opacity: 0.6;' , onClick: (e) => e.stopPropagation() }, 
-          { icon: renderVIcon(MoreIcon) })
-      })
-    ]);
-  } else {
-    return option.label as string; // Label for "All"
-  }
 }
 
 // Generate menu options with GROUPS
