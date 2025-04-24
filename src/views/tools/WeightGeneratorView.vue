@@ -381,9 +381,8 @@ const parseTagsFromText = (text: string): Array<{id: string; name: string; keywo
             else if (left === '[' && right === ']') bracketType = 'square';
             else if (left === '{' && right === '}') bracketType = 'curly';
             else if (left === '<' && right === '>') bracketType = 'angle';
-            // 只有两层及以上才算嵌套，1层视为0，且小于0强制为0
-            nesting = Math.min(leftBrackets.length, rightBrackets.length) - 1;
-            if (nesting < 0) nesting = 0;
+            // 嵌套层数起始点改为0（1层括号就是1）
+            nesting = Math.min(leftBrackets.length, rightBrackets.length);
         }
         // 查找库中是否有该标签
         const searchName = extractionSettings.value.caseSensitiveMatch ? name : name.toLowerCase();
@@ -518,15 +517,29 @@ const applyRandomWeights = () => {
 
 // 重构 generatePrompt 函数以实现新的括号和格式化逻辑
 const generatePrompt = () => {
-    if (!selectedTags.value || selectedTags.value.length === 0) { // Check if selectedTags exists
+    if (!selectedTags.value || selectedTags.value.length === 0) {
         generatedPrompt.value = '';
         return;
     }
-    const templateConfig = templates.value?.[activeTemplate.value]; // Optional chaining
+    const templateConfig = templates.value?.[activeTemplate.value];
     if (!templateConfig) {
         console.error('未找到激活的模板配置:', activeTemplate.value);
         generatedPrompt.value = '错误：模板配置无效';
         return;
+    }
+
+    // 辅助函数：判断模板是否有括号，返回类型和内容
+    function parseTemplateBracket(format: string) {
+      const match = format.match(/^\s*([\(\[\{<])(.+)[\)\]\}>]\s*$/);
+      if (match) {
+        let type = 'round';
+        if (match[1] === '(') type = 'round';
+        if (match[1] === '[') type = 'square';
+        if (match[1] === '{') type = 'curly';
+        if (match[1] === '<') type = 'angle';
+        return { hasBracket: true, bracketType: type, inner: match[2] };
+      }
+      return { hasBracket: false, bracketType: 'none', inner: format };
     }
 
     const formattedTags = selectedTags.value.map(tag => {
@@ -534,34 +547,36 @@ const generatePrompt = () => {
         const formattedWeight = formatNumberByDecimalPlaces(weight, decimalPlaces.value);
         const userBracketType = tagBrackets.value?.[tag.id] ?? defaultBracket.value;
         const tagNameRaw = tag.name;
-        // 优先用单条嵌套层数，没有则用全局
-        const userNesting = (bracketNesting.value?.[tag.id] === undefined || bracketNesting.value?.[tag.id] === null)
+        let userNesting = (bracketNesting.value?.[tag.id] === undefined || bracketNesting.value?.[tag.id] === null)
           ? (globalNestingCount.value ?? 0)
           : bracketNesting.value?.[tag.id];
 
-        let contentToWrap = tagNameRaw;
-        let effectiveBracketType = userBracketType;
-        let effectiveNesting = userNesting;
+        // 解析模板括号
+        const parsed = parseTemplateBracket(templateConfig.tagFormat);
+        let content = parsed.inner.replace('{{name}}', tagNameRaw).replace('{{weight}}', formattedWeight.toString());
+        let result = '';
 
-        // 有权重且用户没设置括号（none/0），自动加一层圆括号
-        if (Math.abs(Number(formattedWeight) - 1.0) >= 0.001) {
-          contentToWrap = templateConfig.tagFormat
-            .replace('{{name}}', tagNameRaw)
-            .replace('{{weight}}', formattedWeight.toString());
-          if (userBracketType === 'none' && (!userNesting || userNesting === 0)) {
-            effectiveBracketType = 'round';
-            effectiveNesting = 1;
+        if (userBracketType !== 'none') {
+          // 用户定义了括号，无论嵌套为0还是大于0，都至少包裹一层
+          const brackets = bracketTypes.find(b => b.value === userBracketType)?.example || '()';
+          let nesting = Math.max(1, userNesting);
+          result = content;
+          for (let i = 0; i < nesting; i++) {
+            result = brackets.charAt(0) + result + brackets.charAt(1);
           }
-        }
-
-        // 按最终括号和嵌套包裹
-        if (effectiveBracketType !== 'none') {
-          const brackets = bracketTypes.find(b => b.value === effectiveBracketType)?.example || '()';
-          for (let i = 0; i < effectiveNesting; i++) {
-            contentToWrap = brackets.charAt(0) + contentToWrap + brackets.charAt(1);
+        } else if (userBracketType === 'none') {
+          if (Math.abs(Number(formattedWeight) - 1.0) >= 0.001) {
+            // 权重不为1，未定义括号，强制用一层圆括号
+            result = '(' + content + ')';
+          } else {
+            // 权重为1，未定义括号，直接原样输出
+            result = tagNameRaw;
           }
+        } else {
+          // 既无括号也无权重，直接内容
+          result = content;
         }
-        return contentToWrap;
+        return result;
     });
 
     generatedPrompt.value = templateConfig.template.replace(
