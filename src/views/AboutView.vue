@@ -6,11 +6,7 @@ import { LogoGithub as GithubIcon, CodeSlashOutline as TechIcon, ShieldCheckmark
 const router = useRouter();
 
 const handleBack = () => {
-  if (window.history.length > 1) {
-      router.go(-1); 
-  } else {
-      router.push('/'); // Fallback to home
-  }
+  router.push('/');
 };
 
 // Example version (replace with dynamic import later if needed)

@@ -32,6 +32,15 @@ const selectedCategoryId = ref<string | undefined>(undefined);
 const editablePromptText = ref<string>('');
 const favoriteTagIds = ref<Set<string>>(new Set());
 const tagSearchTerm = ref<string>('');
+const cartTags = ref<Tag[]>([]);
+const cartTagWeights = ref<{[id: string]: number}>({});
+const cartTagNotes = ref<{[id: string]: string}>({});
+const cartFavorites = ref<Set<string>>(new Set());
+const cartHistory = ref<Tag[][]>([]);
+const cartViewMode = ref<'grid'|'list'>('grid');
+const cartSearch = ref('');
+const cartResultText = ref('');
+const cartDragging = ref(false);
 
 // --- Computed Properties ---
 
@@ -170,11 +179,11 @@ const groupedSelectedTagsForDisplay = computed(() => {
     return sortedGroups; 
 });
 
-// --- Update selectedTagsString for comma-separated keywords/names only ---
+// --- Update selectedTagsString for comma-separated标签内容 only ---
 const selectedTagsString = computed(() => {
     return selectedTags.value
-        .map(tag => tag.keyword || tag.name) // Get keyword or name
-        .join(', '); // Join with comma and space
+        .map(tag => tag.name) // 只显示标签内容
+        .join(', ');
 });
 
 // --- Methods ---
@@ -331,6 +340,12 @@ const addAllVisibleTags = () => {
     message.info("已添加所有可见标签（待实现）");
 };
 */
+
+// 4. 结果区（支持多种导出格式、自动刷新）
+watch([cartTags, cartTagWeights, cartTagNotes], () => {
+  // 自动生成结果文本，只显示标签内容
+  cartResultText.value = cartTags.value.map(tag => tag.name).join(', ');
+}, {deep: true});
 
 </script>
 

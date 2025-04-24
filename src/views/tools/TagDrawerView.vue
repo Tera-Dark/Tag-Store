@@ -22,7 +22,9 @@ import {
     NTabPane,
     useMessage,
     NModal,
-    NPopconfirm
+    NPopconfirm,
+    NCollapse,
+    NCollapseItem
 } from 'naive-ui';
 import { 
     CopyOutline as CopyIcon,
@@ -38,7 +40,8 @@ import {
     TrashOutline as DeleteIcon,
     CloudUploadOutline as SavePresetIcon,
     FolderOpenOutline as GroupIcon,
-    FolderOpenOutline
+    FolderOpenOutline,
+    ArrowBackOutline as ArrowBackIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
@@ -752,695 +755,201 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
 </script>
 
 <template>
-  <div class="tag-drawer-view" style="padding-bottom: 80px;">
-    <n-page-header title="标签抽取器" @back="handleBack">
-      <template #subtitle>
-        从当前库中随机抽取标签组合，激发创作灵感
-      </template>
-      <template #extra>
-        <n-space>
-          <n-tag type="info">
-            当前库: {{ currentLibraryName }}
-          </n-tag>
-          <n-tag type="success">
-            分类: {{ categoryCount }}
-          </n-tag>
-          <n-tag type="warning">
-            标签: {{ tagCount }}
-          </n-tag>
-        </n-space>
-      </template>
-    </n-page-header>
-    <n-divider />
-
-    <n-tabs v-model:value="currentTab" type="line" animated>
-      <n-tab-pane name="basic" tab="抽取设置">
-        <n-grid x-gap="24" cols="1 m:2" responsive="screen">
-          <!-- 左侧设置面板 -->
-          <n-gi>
-            <n-card title="设置" class="settings-card">
-              <n-scrollbar style="max-height: calc(100vh - 250px);" trigger="hover">
-                <n-space vertical size="large" style="padding-right: 10px;"> 
-                  <!-- 预设管理 -->
-                  <div class="setting-group preset-management">
-                    <div class="setting-label">抽取预设</div>
-                    <n-space align="center">
-                      <n-select
-                        v-model:value="selectedPresetName"
-                        :options="presetOptions"
-                        placeholder="加载或管理预设"
-                        clearable
-                        @update:value="handlePresetSelectionChange" 
-                        style="flex-grow: 1; min-width: 150px;"
-                      />
-                      <n-tooltip trigger="hover">
-                        <template #trigger>
-                          <n-button @click="openSavePresetModal" circle secondary>
-                            <template #icon><n-icon :component="SavePresetIcon" /></template>
-                          </n-button>
-                        </template>
-                        保存当前设置为新预设
-                      </n-tooltip>
-                      <n-popconfirm
-                        v-if="selectedPresetName"
-                        @positive-click="deleteSelectedPreset"
-                        positive-text="确认删除"
-                        negative-text="取消"
-                      >
-                        <template #trigger>
-                           <n-tooltip trigger="hover">
-                              <template #trigger>
-                                  <n-button type="error" circle secondary>
-                                  <template #icon><n-icon :component="DeleteIcon" /></template>
-                                  </n-button>
-                              </template>
-                              删除选中的预设
-                          </n-tooltip>
-                        </template>
-                        确认删除预设 "{{ selectedPresetName }}" 吗？此操作无法撤销。
-                      </n-popconfirm>
-                    </n-space>
-                  </div>
-                  <n-divider /> 
-                  <!-- 预设管理结束 -->
-
-                  <!-- 抽取数量控制 (Enhanced) -->
-                  <div class="setting-group number-control-group">
-                    <div class="setting-label">抽取数量</div>
-                    <div class="number-control">
-                      <n-button secondary circle size="small" @click="decreaseCount" :disabled="numTagsToDraw <= minTagsToDraw">
-                        -
-                      </n-button>
-                      <n-input-number
-                        v-model:value="numTagsToDraw"
-                        :min="minTagsToDraw"
-                        :max="maxTagsToDraw"
-                        class="count-input"
-                      />
-                      <n-button secondary circle size="small" @click="increaseCount" :disabled="numTagsToDraw >= maxTagsToDraw">
-                        +
-                      </n-button>
-                    </div>
-                  </div>
-                  
-                  <!-- 分类选择 -->
-                  <div class="setting-group">
-                      <div class="setting-label">抽取范围</div>
-                      <n-tree-select
-                          v-model:value="selectedNodeKeys"
-                          :options="treeData"
-                          multiple
-                          cascade
-                          checkable
-                          clearable
-                          placeholder="选择分组或分类 (默认全部)"
-                          size="small" 
-                          style="width: 100%;" 
-                          max-tag-count="responsive"
-                          fallback-option-value="__FALLBACK__" 
-                      />
-                      <!-- NEW Checkbox -->
-                      <n-checkbox 
-                        v-model:checked="ensureEachSelectedCategory"
-                        :disabled="disableEnsureEachSelected"
-                        class="mt-2"
-                      >
-                        确保每个选中分类至少一个
-                      </n-checkbox>
-                      <n-tooltip trigger="hover" v-if="disableEnsureEachSelected">
-                        <template #trigger>
-                          <span style="margin-left: 4px; color: var(--n-text-color-disabled); cursor: help;">(?)</span>
-                        </template>
-                        选择"所有分类"或未选择具体分类时禁用此选项。
-                      </n-tooltip>
-                  </div>
-                  
-                  <!-- 排除关键词 -->
-                  <div class="setting-group">
-                    <div class="setting-label">排除关键词</div>
-                    <n-input
-                      v-model:value="exclusionKeywords"
-                      type="text"
-                      placeholder="排除关键词 (用逗号分隔)"
-                      clearable
-                    />
-                  </div>
-
-                  <n-divider />
-                  
-                  <!-- MOVED FROM ADVANCED: 抽取方法 -->
-                  <div class="setting-group">
-                    <div class="setting-label">抽取方法</div>
-                    <n-radio-group v-model:value="drawMethod" name="drawMethod">
-                      <n-space>
-                        <n-radio value="random">
-                          <n-space :size="4" align="center">
-                            <n-icon :component="ShuffleIcon" />
-                            <span>完全随机</span>
-                          </n-space>
-                        </n-radio>
-                        <n-radio value="leastUsed">
-                          <n-space :size="4" align="center">
-                            <n-icon :component="LeastUsedIcon" />
-                            <span>最少使用优先</span>
-                          </n-space>
-                        </n-radio>
-                        <n-radio value="mostUsed">
-                          <n-space :size="4" align="center">
-                            <n-icon :component="MostUsedIcon" />
-                            <span>最常用优先</span>
-                          </n-space>
-                        </n-radio>
-                      </n-space>
-                    </n-radio-group>
-                  </div>
-                  
-                  <!-- MOVED FROM ADVANCED: 重复处理 & 历史记录 -->
-                  <div class="setting-group">
-                    <div class="setting-label">其他选项</div>
-                    <n-space>
-                      <n-checkbox v-model:checked="noDuplicates">禁止重复标签</n-checkbox>
-                      <n-checkbox v-model:checked="saveHistory">保存抽取历史</n-checkbox>
-                    </n-space>
-                  </div>
-                </n-space>
-              </n-scrollbar>
-            </n-card>
-          </n-gi>
-          
-          <!-- 右侧结果面板 -->
-          <n-gi>
-            <n-card 
-              title="抽取结果" 
-              class="results-card"
-              :bordered="false"
-              :segmented="{ content: true }"
-            >
-              <template #header-extra>
-                <n-space v-if="drawnTags.length > 0">
-                  <n-tooltip trigger="hover" placement="top">
-                    <template #trigger>
-                      <n-button text @click="redrawUnlockedTags" size="small" :disabled="!canRedraw || isDrawing"> 
-                        <template #icon>
-                          <n-icon :component="RedrawIcon" />
-                        </template>
-                        重抽未锁定
-                      </n-button>
-                    </template>
-                    重新抽取未锁定的标签位
-                  </n-tooltip>
-                </n-space>
-              </template>
-              
-              <div v-if="drawnTags.length === 0" class="empty-result">
-                <n-icon :component="TagIcon" size="48" class="empty-icon" />
-                <div class="empty-text">点击"开始抽取"按钮随机抽取标签</div>
-              </div>
-              
-              <transition-group 
-                name="result-item" 
-                tag="div" 
-                class="results-list"
-                v-else
-              >
-                <div 
-                  v-for="(tag, index) in drawnTags" 
-                  :key="tag.id"
-                  class="result-item"
-                  :style="{ transitionDelay: `${index * 0.07}s` }"
-                >
-                  <div class="result-tag">
-                    <div class="result-tag-header">
-                      <n-space align="center" :wrap-item="false" :size="4">
-                        <div class="result-category">
-                          {{ tagStore.categories.find(c => c.id === tag.categoryId)?.name || '未分类' }}
-                        </div>
-                        <n-tag 
-                          v-for="subtitle in (tag.subtitles || [])" 
-                          :key="subtitle"
-                          type="default" 
-                          size="tiny" 
-                          round
-                          class="subtitle-tag"
-                        >
-                          {{ subtitle }}
-                        </n-tag>
-                      </n-space>
-                      <n-button text circle size="small" @click="toggleLock(tag.id)" class="lock-button">
-                        <template #icon>
-                          <n-icon :component="lockedTagIds.has(tag.id) ? LockIcon : UnlockIcon" />
-                        </template>
-                      </n-button>
-                    </div>
-                    <div class="result-content">{{ tag.name }}</div>
-                    <div class="result-subtitle">
-                      {{ tag.keyword || '' }} 
-                    </div>
-                    <div class="result-usage" v-if="getTagUsageCount(tag.id) > 0">
-                      <n-tag size="small" type="info">
-                        已使用 {{ getTagUsageCount(tag.id) }} 次
-                      </n-tag>
-                    </div>
-                  </div>
-                </div>
-              </transition-group>
-            </n-card>
-          </n-gi>
-        </n-grid>
-      </n-tab-pane>
-      
-      <!-- 高级设置 (Content adjusted) -->
-      <n-tab-pane name="advanced" tab="数据管理">
-        <n-card title="数据管理">
-          <n-space vertical size="large">
-            <!-- 重置统计 -->
-            <div class="setting-group">
-              <div class="setting-label">使用统计</div>
-              <n-popconfirm @positive-click="resetUsageCounts">
-                <template #trigger>
-                  <n-button type="warning" secondary size="small">
-                    重置所有标签使用统计
-                  </n-button>
-                </template>
-                确认要重置所有标签的使用次数统计吗？此操作不可逆。
-              </n-popconfirm>
-            </div>
-          </n-space>
-        </n-card>
-      </n-tab-pane>
-      
-      <!-- 历史记录 -->
-      <n-tab-pane name="history" tab="历史记录">
-        <n-card title="抽取历史">
-          <template #header-extra>
-            <n-button @click="clearHistory" size="small" type="error" secondary v-if="historyItems.length > 0">
-              清空历史
-            </n-button>
-          </template>
-          
-          <div v-if="historyItems.length === 0" class="empty-result">
-            <n-icon :component="HistoryIcon" size="48" class="empty-icon" />
-            <div class="empty-text">暂无抽取历史记录</div>
-          </div>
-          
-          <div v-else class="history-list">
-            <div v-for="item in historyItems" :key="item.id" class="history-item">
-              <div class="history-header">
-                <div class="history-time">{{ formatTime(item.timestamp) }}</div>
-                <n-space align="center">
-                  <n-button text size="small" @click="copyHistoryItemTags(item)">
-                    <template #icon><n-icon :component="CopyIcon" /></template>
-                    复制标签
-                  </n-button>
-                  <n-button text size="small" @click="reloadFromHistory(item)">
-                    <template #icon><n-icon :component="RedrawIcon" /></template>
-                    重新加载
-                  </n-button>
-                </n-space>
-              </div>
-              <div v-if="item.settings" class="history-settings">
-                  <span>设置: {{ item.settings.numTags }}个, 方法: {{ item.settings.method || '未知' }}</span>
-                  <span v-if="item.settings.categories && item.settings.categories.length > 0">, 分类: [{{ item.settings.categories.join(', ') }}]</span>
-                  <span v-if="item.settings.exclusions">, 排除: "{{ item.settings.exclusions }}"</span>
-                  <span v-if="item.settings.multiCategory && item.settings.ensureBalance">, 平衡模式</span>
-                  <span v-else-if="item.settings.multiCategory">, 多分类</span>
-              </div>
-              <div v-else class="history-settings-missing">
-                  <span>(旧记录，无详细设置信息)</span>
-              </div>
-              <div class="history-tags">
-                <n-tag v-for="tag in item.tags" :key="tag.id" class="history-tag" type="info">
-                  {{ tag.name }}
-                </n-tag>
-              </div>
-            </div>
-          </div>
-        </n-card>
-      </n-tab-pane>
-    </n-tabs>
-
-    <!-- 保存预设 Modal -->
-    <n-modal 
-      v-model:show="showSavePresetModal"
-      preset="dialog"
-      title="保存预设"
-      positive-text="保存"
-      negative-text="取消"
-      @positive-click="handleSavePresetConfirm"
-      @negative-click="cancelSavePreset"
-    >
-      <n-input 
-        v-model:value="newPresetName"
-        placeholder="输入预设名称"
-        @keydown.enter.prevent="handleSavePresetConfirm" 
+  <div class="drawer-page-header">
+    <n-button text circle size="large" class="back-btn" @click="handleBack">
+      <n-icon size="24" :component="ArrowBackIcon" />
+    </n-button>
+  </div>
+  <div class="tag-drawer-minimal">
+    <h2 class="drawer-h2">标签抽取器</h2>
+    <n-divider style="margin-bottom: 24px; margin-top: 8px;" />
+    <!-- 主操作区 -->
+    <div class="main-controls">
+      <n-tree-select
+        v-model:value="selectedNodeKeys"
+        :options="treeData"
+        placeholder="选择分类（可多选）"
+        multiple
+        clearable
+        style="width: 100%;"
       />
-    </n-modal>
-
-    <!-- Fixed Action Bar -->
-    <div class="fixed-action-bar" :style="actionBarStyle">
-      <n-button 
-        type="primary" 
-        size="large" 
-        @click="drawTags" 
+      <n-input-number
+        v-model:value="numTagsToDraw"
+        :min="minTagsToDraw"
+        :max="maxTagsToDraw"
+        placeholder="抽取数量"
+        style="width: 100%;"
+      />
+      <n-button
+        type="primary"
+        size="large"
+        block
         :loading="isDrawing"
-        :disabled="tagCount === 0"
-        style="min-width: 150px; margin-right: 12px;"
+        @click="drawTags"
+        style="margin-top: 12px;"
       >
-        <template #icon>
-          <n-icon :component="ShuffleIcon" />
-        </template>
         {{ isDrawing ? '抽取中...' : '开始抽取' }}
       </n-button>
-      
-      <n-button 
-        type="default" 
-        size="large" 
-        @click="resetForm" 
-        :disabled="isDrawing"
-        quaternary
-        style="margin-right: 24px;"
-      >
-        <template #icon>
-          <n-icon :component="ResetIcon" />
-        </template>
-        重置设置
-      </n-button>
-
-      <n-tooltip trigger="hover" placement="top">
-        <template #trigger>
-          <n-button 
-            text 
-            @click="copyResults(true)" 
-            size="large"
-            :disabled="drawnTags.length === 0"
-            style="margin-left: 24px;"
-          >
-            <template #icon>
-              <n-icon :component="CopyIcon" />
-            </template>
-            复制标签
-          </n-button>
-        </template>
-        只复制标签名称 (逗号分隔)
-      </n-tooltip>
-
-      <n-tooltip trigger="hover" placement="top">
-        <template #trigger>
-          <n-button 
-            text 
-            @click="copyResults(false)" 
-            size="large"
-            :disabled="drawnTags.length === 0"
-            style="margin-left: 12px;"
-          >
-            <template #icon>
-              <n-icon :component="CopyIcon" />
-            </template>
-            复制完整
-          </n-button>
-        </template>
-        复制完整结果 (含分类/子标题)
-      </n-tooltip>
     </div>
 
+    <!-- 结果区 -->
+    <div v-if="drawnTags.length" class="result-area">
+      <div class="result-tags">
+        <div v-for="tag in drawnTags" :key="tag.id" class="result-tag-card">
+          <div class="tag-main-row">
+            <span class="tag-main-text">{{ tag.name }}</span>
+            <n-button text circle size="tiny" @click="() => toggleLock(tag.id)" style="margin-left:4px;">
+              <n-icon :component="lockedTagIds.has(tag.id) ? LockIcon : UnlockIcon" />
+            </n-button>
+          </div>
+          <div v-if="tag.keyword" class="tag-keyword">{{ tag.keyword }}</div>
+        </div>
+      </div>
+      <n-space justify="center" style="margin-top: 8px;">
+        <n-button size="small" @click="() => copyResults()">复制全部</n-button>
+        <n-button size="small" @click="() => copyResults(true)">仅复制标签名</n-button>
+        <n-button size="small" @click="redrawUnlockedTags" v-if="canRedraw && !isDrawing">重抽未锁定</n-button>
+      </n-space>
+    </div>
+
+    <!-- 辅助功能区：极简折叠面板 -->
+    <n-collapse class="minimal-collapse" :default-expanded-names="[]" style="margin-top:32px;">
+      <n-collapse-item title="高级设置" name="settings">
+        <n-space vertical size="large">
+          <n-input v-model:value="exclusionKeywords" placeholder="排除关键词（逗号分隔）" clearable style="max-width: 300px;" />
+          <n-radio-group v-model:value="drawMethod" name="drawMethod">
+            <n-space>
+              <n-radio value="random">完全随机</n-radio>
+              <n-radio value="leastUsed">最少使用优先</n-radio>
+              <n-radio value="mostUsed">最常用优先</n-radio>
+            </n-space>
+          </n-radio-group>
+          <n-space>
+            <n-checkbox v-model:checked="noDuplicates">禁止重复标签</n-checkbox>
+            <n-checkbox v-model:checked="ensureEachSelectedCategory" :disabled="disableEnsureEachSelected">平衡模式（每分类至少一个）</n-checkbox>
+          </n-space>
+        </n-space>
+      </n-collapse-item>
+      <n-collapse-item title="预设管理" name="presets">
+        <n-space vertical size="large">
+          <n-select
+            v-model:value="selectedPresetName"
+            :options="presetOptions"
+            placeholder="选择预设"
+            clearable
+            @update:value="handlePresetSelectionChange"
+            style="max-width: 200px;"
+          />
+          <n-space>
+            <n-button @click="openSavePresetModal" size="small">保存当前设置为预设</n-button>
+            <n-popconfirm v-if="selectedPresetName" @positive-click="deleteSelectedPreset" positive-text="确认" negative-text="取消">
+              <template #trigger>
+                <n-button size="small" type="error">删除当前预设</n-button>
+              </template>
+              确认删除当前预设？
+            </n-popconfirm>
+          </n-space>
+        </n-space>
+        <n-modal 
+          v-model:show="showSavePresetModal"
+          preset="dialog"
+          title="保存预设"
+          positive-text="保存"
+          negative-text="取消"
+          @positive-click="handleSavePresetConfirm"
+          @negative-click="cancelSavePreset"
+        >
+          <n-input 
+            v-model:value="newPresetName"
+            placeholder="输入预设名称"
+            @keydown.enter.prevent="handleSavePresetConfirm" 
+          />
+        </n-modal>
+      </n-collapse-item>
+      <n-collapse-item title="历史记录" name="history">
+        <n-space vertical size="large">
+          <n-button @click="clearHistory" size="small" type="error" v-if="historyItems.length > 0">清空历史</n-button>
+          <div v-if="historyItems.length === 0" style="color:#888;">暂无抽取历史记录</div>
+          <div v-else>
+            <div v-for="item in historyItems" :key="item.id" style="margin-bottom:12px;">
+              <div style="font-size:13px;color:#888;">{{ formatTime(item.timestamp) }}</div>
+              <n-space>
+                <n-button text size="tiny" @click="() => copyHistoryItemTags(item)">复制标签</n-button>
+                <n-button text size="tiny" @click="() => reloadFromHistory(item)">重新加载</n-button>
+              </n-space>
+              <div style="margin-top:4px;">
+                <n-tag v-for="tag in item.tags" :key="tag.id" size="small" type="info">{{ tag.name }}</n-tag>
+              </div>
+            </div>
+          </div>
+        </n-space>
+      </n-collapse-item>
+      <n-collapse-item title="统计与重置" name="stats">
+        <n-space vertical size="large">
+          <div>标签总数：{{ tagCount }}，分类总数：{{ categoryCount }}</div>
+          <n-button @click="resetUsageCounts" size="small" type="warning">重置标签使用统计</n-button>
+        </n-space>
+      </n-collapse-item>
+    </n-collapse>
   </div>
 </template>
 
 <style scoped>
-.tag-drawer-view {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px;
+.tag-drawer-minimal {
+  max-width: 420px;
+  margin: 48px auto 0 auto;
+  padding: 32px 12px 64px 12px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
 }
-
-.settings-card, .results-card {
-  height: 100%;
-  min-height: calc(100vh - 220px); 
-}
-
-.settings-card .n-scrollbar-content {
-  padding-right: 10px;
-}
-
-.setting-group {
-  margin-bottom: 16px;
-}
-
-.setting-label {
-  font-weight: 500;
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: var(--n-text-color-2);
-}
-
-.number-control-group {
-  padding: 10px;
-  background-color: var(--n-action-color);
-  border-radius: var(--n-border-radius);
-  border: 1px solid var(--n-divider-color);
-}
-
-.number-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.count-input {
-  flex-grow: 1;
+.tag-drawer-minimal h2 {
   text-align: center;
-  min-width: 80px;
+  font-weight: 600;
+  margin-bottom: 28px;
+  letter-spacing: 1px;
 }
-
-.number-control .count-input :deep(input) {
-  font-size: 1.4em;
-  font-weight: bold;
-  text-align: center;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-}
-
-.number-control .n-button--small {
-  width: 30px;
-  height: 30px;
-}
-
-.mt-2 {
-  margin-top: 8px;
-}
-
-.empty-result {
-  height: 100%;
-  min-height: 300px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--n-text-color-3);
-}
-
-.empty-icon {
-  margin-bottom: 16px;
-  opacity: 0.5;
-}
-
-.empty-text {
-  font-size: 14px;
-  text-align: center;
-}
-
-.results-list {
+.main-controls {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: 500px;
-  overflow-y: auto;
-  padding: 8px 4px;
 }
-
-.result-item {
-  animation: slide-in 0.3s ease-out forwards;
-  opacity: 0;
-  transform: translateY(20px);
+.result-area {
+  margin-top: 32px;
+  text-align: center;
 }
-
-@keyframes slide-in {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.result-item-enter-active,
-.result-item-leave-active {
-  transition: opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-.result-item-enter-from,
-.result-item-leave-to {
-  opacity: 0;
-  transform: translateY(25px) scale(0.9);
-}
-
-.result-tag {
-  background-color: var(--n-color-hover);
-  border-radius: 8px;
-  padding: 12px 16px;
-  transition: all 0.2s ease;
-  border: 1px solid var(--n-border-color);
-  position: relative;
-}
-
-.result-tag:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
-}
-
-.result-tag-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 6px;
-}
-
-.result-category {
-  font-size: 13px;
-  color: var(--n-primary-color);
-  font-weight: 500;
-  white-space: normal;
-  line-height: 1.3;
-}
-
-.subtitle-tag {
-  background-color: var(--n-action-color);
-  color: var(--n-text-color-3);
-}
-
-.lock-button {
-  margin-left: 8px;
-  flex-shrink: 0;
-}
-
-.result-content {
-  font-size: 16px;
-  margin-bottom: 4px;
-  font-weight: 500;
-}
-
-.result-subtitle {
-  font-size: 13px;
-  color: var(--n-text-color-3);
-  font-style: normal;
-  margin-bottom: 6px;
-}
-
-.result-usage {
-  margin-top: 6px;
-}
-
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-height: 600px;
-  overflow-y: auto;
-}
-
-.history-item {
-  border: 1px solid var(--n-border-color);
-  border-radius: 8px;
-  padding: 12px;
-}
-
-.history-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.history-time {
-  font-size: 13px;
-  color: var(--n-text-color-3);
-}
-
-.history-settings {
-    font-size: 12px;
-    color: var(--n-text-color-3);
-    margin-bottom: 8px;
-    word-break: break-all;
-}
-
-.history-tags {
+.result-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-}
-
-.history-tag {
-  margin-right: 0;
-}
-
-.history-settings-missing {
-    font-size: 12px;
-    color: var(--n-text-color-disabled);
-    font-style: italic;
-    margin-bottom: 8px;
-}
-
-.results-card .n-card-header__extra {
-  flex-shrink: 0;
-}
-
-/* Fixed Action Bar */
-.fixed-action-bar {
-  position: fixed;
-  bottom: 0;
-  right: 0;
-  height: 64px;
-  background-color: var(--n-card-color);
-  border-top: 1px solid var(--n-border-color);
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
-  display: flex;
+  gap: 12px;
   justify-content: center;
-  align-items: center;
-  padding: 0 24px;
-  z-index: 10;
-  transition: left 0.3s var(--n-bezier), background-color 0.3s var(--n-bezier), border-color 0.3s var(--n-bezier);
+  margin-bottom: 8px;
 }
-
-@media (max-width: 768px) {
-  .tag-drawer-view {
-    padding: 16px;
-    padding-bottom: 80px;
-  }
-  
-  .settings-card, .results-card {
-    min-height: auto;
-  }
-  
-  .results-card {
-    margin-top: 16px;
-  }
-
-  .fixed-action-bar {
-    height: auto;
-    min-height: 56px;
-    padding: 8px 16px;
-    left: 0 !important;
-  }
-
-  .fixed-action-bar .n-button {
-     padding-left: 10px;
-     padding-right: 10px;
-     margin-bottom: 4px;
-  }
-  .fixed-action-bar .n-button--large {
-      height: 40px;
-      font-size: 14px;
-  }
-  .fixed-action-bar .n-divider--vertical {
-      display: none;
-  }
+.result-tag-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 10px;
+  padding: 10px 18px 6px 18px;
+  min-width: 90px;
+  margin-bottom: 0;
+}
+.tag-main-row {
+  display: flex;
+  align-items: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #389e0d;
+}
+.tag-main-text {
+  margin-right: 2px;
+}
+.tag-keyword {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+  word-break: break-all;
 }
 </style> 

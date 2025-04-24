@@ -18,12 +18,7 @@ import {
 const router = useRouter();
 
 const handleBack = () => {
-  // Consider navigating back in history or to home
-  if (window.history.length > 1) {
-      router.go(-1); 
-  } else {
-      router.push('/');
-  }
+  router.push('/');
 };
 
 // Updated tools array with path

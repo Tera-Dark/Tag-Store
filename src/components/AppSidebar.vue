@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { h, ref, defineProps, watch } from 'vue';
-import { NMenu, NIcon, NDivider } from 'naive-ui';
+import { NMenu, NIcon, NDivider, NTooltip } from 'naive-ui';
 import type { MenuOption } from 'naive-ui';
 import { 
   GridOutline as DashboardIcon,
@@ -89,9 +89,9 @@ watch(() => router.currentRoute.value.path, (path) => {
 }, { immediate: true });
 
 // Handle menu item selection
-// @ts-ignore - 'key' is intentionally unused in the function body, but required by n-menu @update:value event signature.
-const handleMenuSelect = (key: string, item: MenuOption) => { 
-  if (typeof item !== 'string' && 'path' in item && item.path) { 
+const handleMenuSelect = (key: string) => {
+  const item = menuOptions.find(i => i.key === key);
+  if (item && typeof item !== 'string' && 'path' in item && item.path) {
     router.push(item.path);
   }
 };
@@ -100,179 +100,234 @@ const handleMenuSelect = (key: string, item: MenuOption) => {
 const toggleSidebar = () => {
   emit('toggle-sidebar');
 };
+
+// 安全获取菜单项的 icon 组件
+function getIconComponent(item: MenuOption) {
+  try {
+    if (item.icon && typeof item.icon === 'function') {
+      const vnode = item.icon();
+      // 只处理 VNode（含有 shapeFlag），忽略 VNodeArrayChildren
+      if (vnode && typeof vnode === 'object' && 'type' in vnode && vnode.type && typeof vnode.type !== 'string' && vnode.type !== undefined && vnode.type !== null) {
+        return vnode.type as any;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 </script>
 
 <template>
-  <div class="sidebar">
-    <!-- 顶部Logo -->
-    <div class="logo">
-      <h1 v-if="!collapsed">TagStore</h1>
-      <span v-else>TS</span>
+  <nav class="sidebar-pro" :class="{ collapsed }">
+    <!-- 顶部Logo区 -->
+    <div class="sidebar-pro-logo">
+      <div class="logo-gradient"></div>
+      <transition name="fade">
+        <div v-if="!collapsed" class="logo-full">
+          <span class="logo-icon">🟢</span>
+          <span class="logo-title">TagStore</span>
+        </div>
+        <div v-else class="logo-mini">T</div>
+      </transition>
     </div>
-    
-    <!-- 菜单区域 -->
-    <div class="menu-area">
+    <!-- 菜单区 -->
+    <div class="sidebar-pro-menu">
       <n-menu
         v-model:value="activeKey"
+        :options="menuOptions"
         :collapsed="collapsed"
         :collapsed-width="64"
-        :collapsed-icon-size="22"
-        :options="menuOptions"
+        :collapsed-icon-size="28"
         :indent="16"
         @update:value="handleMenuSelect"
         inverted
+        :render-label="collapsed ? (option => '') : undefined"
       />
     </div>
-    
-    <!-- 底部填充空间 -->
-    <div class="flex-spacer"></div>
-    
-    <!-- 标签库管理按钮 -->
-    <div class="library-manager-area">
-      <n-divider style="margin: 0;" />
-      <div class="library-manager-button" @click="openLibraryManager">
-        <n-icon :component="LibraryManagerIcon" size="18" />
-        <span v-if="!collapsed">管理标签库</span>
+    <div class="sidebar-pro-spacer"></div>
+    <!-- 底部功能区 -->
+    <div class="sidebar-pro-bottom">
+      <n-tooltip v-if="collapsed" placement="right">
+        <template #trigger>
+          <div class="bottom-icon-btn" @click="openLibraryManager">
+            <n-icon :component="LibraryManagerIcon" size="22" />
+          </div>
+        </template>
+        管理标签库
+      </n-tooltip>
+      <div v-else class="bottom-card-btn" @click="openLibraryManager">
+        <n-icon :component="LibraryManagerIcon" size="20" />
+        <span>管理标签库</span>
+      </div>
+      <n-tooltip v-if="collapsed" placement="right">
+        <template #trigger>
+          <div class="bottom-icon-btn" @click="toggleSidebar">
+            <n-icon :component="ExpandIcon" size="22" v-if="collapsed" />
+            <n-icon :component="CollapseIcon" size="22" v-else />
+    </div>
+        </template>
+        {{ collapsed ? '展开侧栏' : '收起侧栏' }}
+      </n-tooltip>
+      <div v-else class="bottom-card-btn" @click="toggleSidebar">
+        <n-icon :component="CollapseIcon" size="20" />
+        <span>收起侧栏</span>
       </div>
     </div>
-    
-    <!-- 底部收起按钮 -->
-    <div class="collapse-area">
-      <n-divider style="margin: 0;" />
-      <div class="collapse-button" @click="toggleSidebar">
-        <n-icon :component="collapsed ? ExpandIcon : CollapseIcon" size="18" />
-        <span v-if="!collapsed">收起侧栏</span>
-      </div>
-    </div>
-    
-    <!-- 标签库管理对话框 -->
     <LibraryManagerDialog v-model:show="showLibraryManager" />
-  </div>
+  </nav>
 </template>
 
 <style scoped>
-.sidebar {
+.sidebar-pro {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background-color: #151515;
+  background: #191c1f;
   color: #fff;
-  overflow: hidden;
+  width: 230px;
+  min-width: 64px;
+  max-width: 260px;
+  transition: width 0.3s cubic-bezier(.4,0,.2,1), background 0.3s;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.08);
+  border-right: 1.5px solid #23272e;
 }
-
-.logo {
+.sidebar-pro.collapsed {
+  width: 64px !important;
+  min-width: 64px !important;
+  max-width: 64px !important;
+}
+.sidebar-pro-logo {
+  position: relative;
   height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.logo h1 {
+  border-bottom: 1.5px solid #23272e;
+  background: transparent;
+  font-family: 'Montserrat', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-weight: 700;
   font-size: 22px;
-  font-weight: 600;
-  margin: 0;
-  color: #fff;
-  text-align: center;
+  letter-spacing: 1px;
 }
-
-.logo span {
-  font-size: 18px;
-  font-weight: 600;
-  color: #fff;
+.logo-gradient {
+  position: absolute;
+  left: 0; top: 0; right: 0; height: 4px;
+  background: linear-gradient(90deg, #18a058 0%, #5ad8a6 100%);
+  border-radius: 0 0 8px 8px;
 }
-
-.menu-area {
+.logo-full {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.logo-icon {
+  font-size: 26px;
+}
+.logo-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.logo-mini {
+  font-size: 22px;
+  font-weight: 700;
+  color: #18a058;
+}
+.sidebar-pro-menu {
   flex: 0 0 auto;
-  overflow-y: auto;
-  padding-top: 8px;
+  margin-top: 18px;
 }
-
-/* 弹性填充空间 */
-.flex-spacer {
+.sidebar-pro-menu ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.sidebar-pro-menu-item {
+  margin: 10px 12px;
+  border-radius: 16px;
+  transition: background 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+  position: relative;
+}
+.menu-icon-btn, .menu-card-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  height: 48px;
+  border-radius: 16px;
+  font-size: 22px;
+  transition: background 0.2s, color 0.2s;
+}
+.menu-icon-btn:hover, .menu-card-btn:hover {
+  background: #18a05822;
+  color: #18a058;
+}
+.menu-card-btn {
+  justify-content: flex-start;
+  gap: 14px;
+  padding-left: 18px;
+}
+.menu-label {
+  font-size: 16px;
+  font-weight: 500;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+.sidebar-pro-menu-item.selected .menu-card-btn,
+.sidebar-pro-menu-item.selected .menu-icon-btn {
+  background: linear-gradient(90deg, #18a058 60%, #5ad8a6 100%);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(24,160,88,0.10);
+}
+.sidebar-pro-spacer {
   flex: 1 1 auto;
   min-height: 20px;
 }
-
-/* 自定义菜单样式 */
-:deep(.n-menu) {
-  background-color: transparent !important;
+.sidebar-pro-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px 0 10px 0;
+  border-top: 1.5px solid #23272e;
+  background: transparent;
 }
-
-:deep(.n-menu-item) {
-  margin: 4px 8px;
-  border-radius: 4px;
-}
-
-:deep(.n-menu-item--selected) {
-  background-color: #18a058 !important; /* 使用绿色作为选中背景 */
-}
-
-:deep(.n-menu-item--selected::before) {
-  display: none; /* 移除默认的左侧指示条 */
-}
-
-:deep(.n-menu-item-content) {
-  padding: 12px 16px !important;
-}
-
-:deep(.n-menu-item-content__icon) {
-  margin-right: 10px !important;
-}
-
-/* 标签库管理按钮样式 */
-.library-manager-area {
-  flex: 0 0 auto;
-}
-
-.library-manager-button {
+.bottom-icon-btn, .bottom-card-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  border-radius: 12px;
+  padding: 10px 0;
+  margin: 0 10px;
+  font-size: 18px;
+  color: #b7eacb;
+  transition: background 0.2s, color 0.2s;
   cursor: pointer;
-  transition: background-color 0.2s;
-  color: rgba(255, 255, 255, 0.6);
 }
-
-.library-manager-button:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: #18a058; /* 悬停时使用绿色 */
+.bottom-icon-btn:hover, .bottom-card-btn:hover {
+  background: #18a05822;
+  color: #18a058;
 }
-
-.library-manager-button span {
-  margin-left: 8px;
-  font-size: 14px;
+.bottom-card-btn {
+  justify-content: flex-start;
+  gap: 10px;
+  padding-left: 18px;
+  font-size: 15px;
+  color: #fff;
 }
-
-/* 收起按钮样式 */
-.collapse-area {
-  flex: 0 0 auto;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+.sidebar-pro-bottom .n-tooltip {
+  width: 100%;
 }
-
-.collapse-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  color: rgba(255, 255, 255, 0.6);
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.2s;
 }
-
-.collapse-button:hover {
-  background-color: rgba(255, 255, 255, 0.08);
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
 }
-
-.collapse-button span {
-  margin-left: 8px;
-  font-size: 14px;
-}
-
-/* 滚动条美化 */
-.menu-area::-webkit-scrollbar {
-  width: 0; /* 隐藏滚动条 */
+.sidebar-pro-menu::-webkit-scrollbar {
+  width: 0;
 }
 </style> 

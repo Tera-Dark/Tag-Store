@@ -344,6 +344,23 @@ const manualLoadMore = () => {
   loadMoreTags();
 };
 
+const copySelectedTagNames = async () => {
+  const names = displayedTags.value
+    .filter(tag => selectedTagIds.value.has(tag.id))
+    .map(tag => tag.name);
+  if (names.length === 0) {
+    message.warning('请先选择要复制的标签');
+    return;
+  }
+  const text = names.join(',');
+  try {
+    await navigator.clipboard.writeText(text);
+    message.success('已复制: ' + text);
+  } catch {
+    message.error('复制失败');
+  }
+};
+
 </script>
 
 <template>
@@ -368,7 +385,8 @@ const manualLoadMore = () => {
       </n-space>
       
       <!-- Right side controls -->
-      <n-space align="center" :size="8" :wrap-item="false" style="flex-shrink: 0; margin-top: 4px;"> <!-- Add margin-top for wrap spacing -->
+      <n-space align="center" :size="8" :wrap-item="false" style="flex-shrink: 0; margin-top: 4px;">
+        <n-button v-if="hasSelection" size="small" type="primary" @click="copySelectedTagNames">复制所选标签名</n-button>
         <n-button-group v-if="hasSelection" size="small">
           <n-button type="warning" 
               @click="handleBatchDelete" 
@@ -482,12 +500,13 @@ const manualLoadMore = () => {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--n-border-color);
   margin-bottom: 16px;
+  flex-wrap: wrap;
   /* NFlex handles layout now */
 }
 
 .grid-wrapper {
-  flex: 1;
-  overflow: auto;
+  /* flex: 1;  // 移除flex:1，避免内部自滚动 */
+  /* overflow: auto; // 移除overflow，交由外部.content-body滚动 */
   position: relative;
   padding-bottom: 16px;
 }
@@ -511,22 +530,23 @@ const manualLoadMore = () => {
 }
 
 .loader-area {
-  margin-top: 10px;
+  margin-top: 0px;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 8px 0;
+  padding: 0px 0 8px 0;
   text-align: center;
-  min-height: 50px;
+  min-height: 36px;
   width: 100%;
 }
 
 .loading-indicator {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  padding: 8px 16px;
-  border-radius: 16px;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 12px;
   background: var(--n-color-hover);
   transition: all 0.3s ease;
 }
@@ -551,6 +571,8 @@ const manualLoadMore = () => {
   .controls-section {
     padding-bottom: 8px;
     margin-bottom: 12px;
+    flex-direction: column;
+    gap: 8px;
   }
 }
 

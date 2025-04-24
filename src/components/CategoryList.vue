@@ -343,54 +343,326 @@ const handleGroupDialogSubmit = async (data: { mode: 'add' | 'edit'; formData: {
 </script>
 
 <template>
-  <div class="category-menu-container">
-    <n-menu
-      :options="menuOptions"
-      :collapsed="props.collapsed"
-      :collapsed-width="64"
-      :collapsed-icon-size="22"
-      :indent="18"
-      :value="selectedKey"
-      :render-label="renderMenuLabel"
-      :render-icon="renderMenuIcon"
-      @update:value="handleUpdateValue"
-      style="flex-grow: 1; overflow-y: auto; overflow-x: hidden; border: none;" 
-      key-field="key"
-      label-field="label"
-      children-field="children"
-    />
-  
-    <!-- Category Edit Dialog -->
+  <div class="category-menu-card-list">
+    <!-- 展开状态：卡片式分组 -->
+    <template v-if="!props.collapsed">
+      <div
+        class="category-card all-category-card"
+        :class="{ selected: selectedKey === 'all' }"
+        @click="handleUpdateValue('all')"
+      >
+        <n-icon :component="ListIcon" class="category-card-icon" />
+        <span class="category-card-label">所有分类</span>
+      </div>
+      <div
+        v-for="group in menuOptions.slice(1)" :key="String(group.key)"
+        class="group-card"
+        :class="{ selected: selectedKey === String(group.key) }"
+      >
+        <div class="group-card-header" @click="handleUpdateValue(String(group.key))">
+          <n-icon :component="GroupIcon" class="group-card-icon" />
+          <span class="group-card-label">{{ group.label }}</span>
+          <n-dropdown
+            trigger="click"
+            :options="[
+              { label: '编辑分组', key: 'edit-group', icon: renderVIcon(EditIcon) },
+              { label: '删除分组', key: 'delete-group', icon: renderVIcon(DeleteIcon), props: { style: 'color: red;' } }
+            ]"
+            placement="right-start"
+            @select="key => handleActionSelect(key, String(group.key))"
+          >
+            <n-button text size="tiny" class="group-more-btn"><n-icon :component="MoreIcon" /></n-button>
+          </n-dropdown>
+        </div>
+        <div class="group-divider"></div>
+        <div
+          v-for="cat in group.children"
+          :key="String(cat.key)"
+          class="category-card"
+          :class="{ selected: selectedKey === String(cat.key) }"
+          @click="handleUpdateValue(String(cat.key))"
+        >
+          <n-icon :component="CategoryIcon" class="category-card-icon" />
+          <span class="category-card-label">{{ cat.label }}</span>
+          <n-dropdown
+            trigger="click"
+            :options="[
+              { label: '编辑分类', key: 'edit-category', icon: renderVIcon(EditIcon) },
+              { label: '移动分类', key: 'move-category', icon: renderVIcon(MoveIcon) },
+              { label: '删除分类', key: 'delete-category', icon: renderVIcon(DeleteIcon), props: { style: 'color: red;' } }
+            ]"
+            placement="right-start"
+            @select="key => handleActionSelect(key, String(cat.key))"
+          >
+            <n-button text size="tiny" class="category-more-btn"><n-icon :component="MoreIcon" /></n-button>
+          </n-dropdown>
+        </div>
+      </div>
+    </template>
+    <!-- 收起状态：仅显示图标，hover弹出浮层 -->
+    <template v-else>
+      <div
+        class="category-collapsed-icon all-category-collapsed-icon"
+        :class="{ selected: selectedKey === 'all' }"
+        @click="handleUpdateValue('all')"
+      >
+        <n-tooltip placement="right" trigger="hover">
+          <template #trigger>
+            <n-icon :component="ListIcon" class="category-collapsed-icon-inner" />
+          </template>
+          所有分类
+        </n-tooltip>
+      </div>
+      <div
+        v-for="group in menuOptions.slice(1)" :key="String(group.key)"
+        class="category-collapsed-icon group-collapsed-icon"
+        :class="{ selected: selectedKey === String(group.key) }"
+      >
+        <n-popover placement="right-start" trigger="hover" :show-arrow="true" :width="180">
+          <template #trigger>
+            <n-icon :component="GroupIcon" class="category-collapsed-icon-inner" />
+          </template>
+          <div class="collapsed-popover-group-label">{{ group.label }}</div>
+          <div class="collapsed-popover-category-list">
+            <div
+              v-for="cat in group.children"
+              :key="String(cat.key)"
+              class="collapsed-popover-category-item"
+              :class="{ selected: selectedKey === String(cat.key) }"
+              @click="handleUpdateValue(String(cat.key))"
+            >
+              <n-icon :component="CategoryIcon" class="collapsed-popover-category-icon" />
+              <span class="collapsed-popover-category-label">{{ cat.label }}</span>
+            </div>
+          </div>
+        </n-popover>
+      </div>
+    </template>
+    <!-- 分类/分组管理弹窗 -->
     <CategoryDialog
       v-model:show="showDialog"
-      mode="edit" 
+      mode="edit"
       :category-to-edit="categoryToEdit"
       @submit="handleCategoryDialogSubmit"
     />
-
-    <!-- Group Add/Edit Dialog -->
-    <GroupDialog 
+    <GroupDialog
       v-model:show="showGroupDialog"
       :mode="groupDialogMode"
       :group-to-edit="groupToEdit"
       @submit="handleGroupDialogSubmit"
     />
-
-    <!-- Move Category Dialog -->
-    <MoveCategoryDialog 
-      v-model:show="showMoveDialog" 
-      :category-to-move="categoryToMove" 
-      :available-groups="tagStore.groups" 
+    <MoveCategoryDialog
+      v-model:show="showMoveDialog"
+      :category-to-move="categoryToMove"
+      :available-groups="tagStore.groups"
       @submit="handleMoveDialogSubmit"
     />
-
   </div>
 </template>
 
 <style scoped>
-.category-menu-container {
-  height: 100%; 
+.category-menu-card-list {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+  min-width: 180px;
+  max-width: 260px;
+  transition: min-width 0.3s cubic-bezier(.4,0,.2,1), max-width 0.3s cubic-bezier(.4,0,.2,1);
+}
+
+/* 展开时分组卡片 */
+.group-card {
+  background: var(--n-card-color);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(24, 160, 88, 0.06);
+  margin: 6px 0;
+  padding-bottom: 6px;
+  transition: box-shadow 0.2s, background 0.2s;
+  overflow: hidden;
+  animation: fade-in 0.3s;
+}
+.group-card.selected {
+  box-shadow: 0 4px 16px rgba(24, 160, 88, 0.12);
+  background: var(--n-item-color-active-hover);
+}
+.group-card-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 18px 6px 18px;
+  position: relative;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+  user-select: none;
+  transition: background 0.2s;
+}
+.group-card-header:hover {
+  background: var(--n-item-color-hover);
+}
+.group-card-icon {
+  margin-right: 10px;
+  font-size: 20px;
+}
+.group-card-label {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.group-more-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+  margin-left: 4px;
+}
+.group-card-header:hover .group-more-btn {
+  opacity: 1;
+}
+.group-divider {
+  height: 1px;
+  background: var(--n-border-color);
+  margin: 0 16px 6px 16px;
+}
+
+/* 分类卡片 */
+.category-card, .all-category-card {
+  display: flex;
+  align-items: center;
+  padding: 8px 28px 8px 38px;
+  border-radius: 7px;
+  background: var(--n-color);
+  cursor: pointer;
+  transition: box-shadow 0.2s, background 0.2s, padding 0.2s;
+  position: relative;
+  min-height: 36px;
+  margin: 2px 8px;
+  font-size: 15px;
+  font-weight: 500;
+  user-select: none;
+  animation: fade-in 0.3s;
+}
+.category-card.selected, .all-category-card.selected {
+  background: linear-gradient(90deg, #18a05822 0%, #5ad8a622 100%);
+  box-shadow: 0 2px 12px rgba(24,160,88,0.10);
+}
+.category-card:hover, .all-category-card:hover {
+  background: var(--n-item-color-hover);
+  box-shadow: 0 2px 8px rgba(24, 160, 88, 0.10);
+}
+.category-card-icon {
+  margin-right: 10px;
+  font-size: 18px;
+}
+.category-card-label {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.category-more-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+  margin-left: 4px;
+}
+.category-card:hover .category-more-btn {
+  opacity: 1;
+}
+
+/* 收起状态下仅显示图标，hover弹出浮层 */
+.category-collapsed-icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px auto;
+  border-radius: 10px;
+  background: var(--n-color);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s, width 0.3s cubic-bezier(.4,0,.2,1);
+  position: relative;
+  animation: fade-in 0.3s;
+}
+.category-collapsed-icon.selected {
+  background: var(--n-item-color-active-hover);
+  box-shadow: 0 2px 8px rgba(24, 160, 88, 0.10);
+}
+.category-collapsed-icon:hover {
+  background: var(--n-item-color-hover);
+}
+.category-collapsed-icon-inner {
+  font-size: 22px;
+  color: var(--n-text-color-1);
+}
+.collapsed-popover-group-label {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 8px;
+  color: var(--n-text-color-1);
+  letter-spacing: 0.5px;
+}
+.collapsed-popover-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.collapsed-popover-category-item {
+  display: flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 14px;
+  font-weight: 500;
+  user-select: none;
+}
+.collapsed-popover-category-item.selected {
+  background: var(--n-item-color-active-hover);
+}
+.collapsed-popover-category-item:hover {
+  background: var(--n-item-color-hover);
+}
+.collapsed-popover-category-icon {
+  font-size: 16px;
+  margin-right: 8px;
+  color: var(--n-text-color-2);
+}
+.collapsed-popover-category-label {
+  font-size: 14px;
+  color: var(--n-text-color-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 动画 */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 展开/收起宽度动画 */
+:host, .category-menu-card-list {
+  transition: min-width 0.3s cubic-bezier(.4,0,.2,1), max-width 0.3s cubic-bezier(.4,0,.2,1);
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .category-menu-card-list {
+    min-width: 64px;
+    max-width: 64px;
+    padding: 6px 0;
+  }
+  .group-card-header, .category-card, .all-category-card {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
 }
 </style> 

@@ -38,7 +38,8 @@ import {
     ShuffleOutline as RandomIcon,
     AddCircleOutline as IncreaseIcon, 
     RemoveCircleOutline as DecreaseIcon,
-    PricetagsOutline as TagIcon
+    PricetagsOutline as TagIcon,
+    ArrowBackOutline as ArrowBackIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -375,88 +376,79 @@ const updateTagWeight = (tagId: string, value: string | number | null) => {
     }
 };
 
-// Refactor to return parsed tags and handle adding separately
-const parseTagsFromText = (text: string): Array<{id: string; name: string; keyword?: string; isFromLibrary?: boolean}> => {
-    const delimiters = extractionSettings.value.delimiters.split('').map(d => d === 'n' ? '\\n' : d === 't' ? '\\t' : d).join('|');
-    const regex = new RegExp(`[${delimiters}]+`);
-    let potentialTags = text.split(regex);
-
-    if (extractionSettings.value.trimWhitespace) {
-        potentialTags = potentialTags.map(tag => tag.trim());
-    }
-    if (extractionSettings.value.removeEmpty) {
-        potentialTags = potentialTags.filter(tag => tag !== '');
-    }
-    
-    // Deduplication logic
-    if (extractionSettings.value.duplicateHandling !== 'keepAll') {
-        const seen = new Set<string>();
-        potentialTags = potentialTags.filter(tag => {
-            const key = extractionSettings.value.caseSensitiveMatch ? tag : tag.toLowerCase();
-            if (seen.has(key)) {
-                return false; // Remove duplicate
-            } else {
-                seen.add(key);
-                return true; // Keep first occurrence
-            }
+// 替换 parseTagsFromText，支持括号解析
+const parseTagsFromText = (text: string): Array<{id: string; name: string; keyword?: string; isFromLibrary?: boolean; weight?: number; bracketType?: BracketType; nesting?: number}> => {
+    // 匹配 ((tag:1.2))、[tag:1.2]、{tag:1.2}、<tag:1.2>、tag:1.2、tag
+    const tagPattern = /([\(\[\{<]+)?\s*([^\(\)\[\]\{\}<>:,\n\t]+)\s*(?::\s*([0-9.]+))?\s*([\)\]\}>]+)?/g;
+    const results: Array<{id: string; name: string; keyword?: string; isFromLibrary?: boolean; weight?: number; bracketType?: BracketType; nesting?: number}> = [];
+    let match;
+    let idx = 0;
+    while ((match = tagPattern.exec(text)) !== null) {
+        let [full, leftBrackets, name, weight, rightBrackets] = match;
+        name = name?.trim();
+        if (!name) continue;
+        // 判断括号类型和嵌套层数
+        let bracketType: BracketType = 'none';
+        let nesting = 0;
+        if (leftBrackets && rightBrackets) {
+            const left = leftBrackets[0];
+            const right = rightBrackets[0];
+            if (left === '(' && right === ')') bracketType = 'round';
+            else if (left === '[' && right === ']') bracketType = 'square';
+            else if (left === '{' && right === '}') bracketType = 'curly';
+            else if (left === '<' && right === '>') bracketType = 'angle';
+            // 只有两层及以上才算嵌套，1层视为0，且小于0强制为0
+            nesting = Math.min(leftBrackets.length, rightBrackets.length) - 1;
+            if (nesting < 0) nesting = 0;
+        }
+        // 查找库中是否有该标签
+        const searchName = extractionSettings.value.caseSensitiveMatch ? name : name.toLowerCase();
+        const existingTag = tagStore.tags.find(t => (extractionSettings.value.caseSensitiveMatch ? t.name : t.name.toLowerCase()) === searchName);
+        results.push({
+            id: existingTag ? existingTag.id : `parsed-${Date.now()}-${idx}`,
+            name: existingTag ? existingTag.name : name,
+            keyword: existingTag ? existingTag.keyword : name,
+            isFromLibrary: !!existingTag,
+            weight: weight ? parseFloat(weight) : undefined,
+            bracketType,
+            nesting
         });
+        idx++;
     }
+    return results;
+};
 
-    return potentialTags.map((name, index) => {
-            const searchName = extractionSettings.value.caseSensitiveMatch ? name : name.toLowerCase();
-            const existingTag = tagStore.tags.find(t => 
-                (extractionSettings.value.caseSensitiveMatch ? t.name : t.name.toLowerCase()) === searchName
-            );
-            
-            if (existingTag) {
-            return { ...existingTag, isFromLibrary: true };
-            } else {
-                return {
-                    id: `parsed-${Date.now()}-${index}`,
-                name: name,
-                keyword: name,
-                isFromLibrary: false
-                };
-            }
-        });
-}
-
+// 修改 handleParseAndAdd，支持权重、括号类型、嵌套层数自动填充
 const handleParseAndAdd = () => {
     if (!inputText.value.trim()) {
         message.warning('请输入要解析的文本');
         return;
     }
     const parsed = parseTagsFromText(inputText.value);
-    
-    // Add to history if not already the most recent entry
     if (!extractionHistory.value.length || extractionHistory.value[0] !== inputText.value) {
         extractionHistory.value.unshift(inputText.value);
         if (extractionHistory.value.length > MAX_HISTORY_ITEMS) {
             extractionHistory.value.pop();
         }
     }
-
-    // Clear existing selections before adding parsed
-    selectedTags.value = []; 
+    selectedTags.value = [];
     tagWeights.value = {};
     tagBrackets.value = {};
-    bracketNesting.value = {}; // Clear this too
-
+    bracketNesting.value = {};
     parsed.forEach(pt => {
         const tagToAdd: Omit<Tag, 'libraryId' | 'categoryId' | 'subtitles' | 'color'> & { isFromLibrary?: boolean, id: string } = {
             id: pt.id,
             name: pt.name,
             keyword: pt.keyword,
-            weight: defaultWeight.value, 
-            isFromLibrary: pt.isFromLibrary 
+            weight: pt.weight ?? defaultWeight.value,
+            isFromLibrary: pt.isFromLibrary
         };
-         // We only push the core properties needed for display and interaction here.
-         // Full Tag type might require fetching categoryId etc. if needed later.
-        addTag(tagToAdd as Tag); // Use addTag, casting for now
+        addTag(tagToAdd as Tag);
+        if (pt.weight !== undefined) tagWeights.value[pt.id] = pt.weight;
+        if (pt.bracketType && pt.bracketType !== 'none') tagBrackets.value[pt.id] = pt.bracketType;
+        if (pt.nesting && pt.nesting > 0) bracketNesting.value[pt.id] = pt.nesting;
     });
-
     message.success(`已解析并添加 ${parsed.length} 个标签`);
-    // inputText.value = ''; // Optionally clear input after parsing
 };
 
 const loadFromHistory = (text: string) => {
@@ -570,29 +562,36 @@ const generatePrompt = () => {
     }
 
     const formattedTags = selectedTags.value.map(tag => {
-        // Use nullish coalescing for safety
         const weight = tagWeights.value?.[tag.id] ?? defaultWeight.value;
         const formattedWeight = formatNumberByDecimalPlaces(weight, decimalPlaces.value);
-        const selectedBracketType = tagBrackets.value?.[tag.id] ?? defaultBracket.value;
-        const tagNameRaw = tag.keyword || tag.name;
+        const userBracketType = tagBrackets.value?.[tag.id] ?? defaultBracket.value;
+        const tagNameRaw = tag.name;
+        // 优先用单条嵌套层数，没有则用全局
+        const userNesting = (bracketNesting.value?.[tag.id] === undefined || bracketNesting.value?.[tag.id] === null)
+          ? (globalNestingCount.value ?? 0)
+          : bracketNesting.value?.[tag.id];
+
         let contentToWrap = tagNameRaw;
-        let effectiveBracketType = selectedBracketType;
-        let finalNesting = globalNestingCount.value ?? 0; // Use nullish coalescing
+        let effectiveBracketType = userBracketType;
+        let effectiveNesting = userNesting;
 
+        // 有权重且用户没设置括号（none/0），自动加一层圆括号
         if (Math.abs(Number(formattedWeight) - 1.0) >= 0.001) {
-             contentToWrap = templateConfig.tagFormat
-                               .replace('{{name}}', tagNameRaw)
-                .replace('{{weight}}', formattedWeight.toString());
-             if (selectedBracketType === 'none' && !/^[\(\[\{<].*[\)\]\}>]$/.test(templateConfig.tagFormat)) { 
-                effectiveBracketType = 'round';
-             }
-        } 
+          contentToWrap = templateConfig.tagFormat
+            .replace('{{name}}', tagNameRaw)
+            .replace('{{weight}}', formattedWeight.toString());
+          if (userBracketType === 'none' && (!userNesting || userNesting === 0)) {
+            effectiveBracketType = 'round';
+            effectiveNesting = 1;
+          }
+        }
 
+        // 按最终括号和嵌套包裹
         if (effectiveBracketType !== 'none') {
-            const brackets = bracketTypes.find(b => b.value === effectiveBracketType)?.example || '()';
-            for (let i = 0; i <= finalNesting; i++) {
-                contentToWrap = brackets.charAt(0) + contentToWrap + brackets.charAt(1);
-            }
+          const brackets = bracketTypes.find(b => b.value === effectiveBracketType)?.example || '()';
+          for (let i = 0; i < effectiveNesting; i++) {
+            contentToWrap = brackets.charAt(0) + contentToWrap + brackets.charAt(1);
+          }
         }
         return contentToWrap;
     });
@@ -743,520 +742,333 @@ const exportPromptToFile = () => {
     // ...
 };
 */
+
+// 1. 新增 selectedTagsViewMode 控制视图切换，默认 grid
+const selectedTagsViewMode = ref<'grid' | 'list'>('grid');
+
+// 自动应用功能：监听 selectedTags、tagWeights、tagBrackets、bracketNesting 变化自动刷新生成栏
+watch([
+  selectedTags, tagWeights, tagBrackets, bracketNesting
+], () => {
+  // 自动同步：括号为"无"时嵌套层数强制为0，嵌套为 undefined/null/空时强制为0
+  selectedTags.value.forEach(tag => {
+    if (tagBrackets.value[tag.id] === 'none') {
+      bracketNesting.value[tag.id] = 0;
+    } else if (bracketNesting.value[tag.id] === undefined || bracketNesting.value[tag.id] === null) {
+      bracketNesting.value[tag.id] = 0;
+    }
+  });
+  generatePrompt();
+}, { deep: true });
 </script>
 
 <template>
-  <div class="weight-generator-view" style="padding-bottom: 80px;"> <!-- Add padding for action bar -->
-    <n-page-header title="权重添加器" @back="handleBack">
-      <template #subtitle>为标签添加权重和括号，生成不同格式的提示词</template>
-      <!-- Removed extra copy button -->
-    </n-page-header>
-    <n-divider />
-    
-    <n-grid :cols="24" :x-gap="16" :y-gap="16">
-      <!-- Left Column: Input & Tag Selection -->
-      <n-gi :span="24" :md="10">
-        <n-space vertical size="large">
-          <!-- Text Input Area -->
-          <n-card title="输入/解析文本" size="small">
-            <template #header-extra>
-              <n-space size="small">
-                <n-button text size="tiny" @click="showHistory = !showHistory" title="解析历史">
-                   <template #icon><n-icon :component="HistoryIcon"/></template>
-                </n-button>
-                 <n-button text size="tiny" @click="showExtractionSettings = !showExtractionSettings" title="解析设置">
-                   <template #icon><n-icon :component="SettingsIcon"/></template>
-                 </n-button>
-              </n-space>
-            </template>
-            <n-input
-              v-model:value="inputText"
-              type="textarea"
-              :rows="4"
-              placeholder="在此输入或粘贴标签文本，用逗号、换行符或Tab分隔..."
+  <div class="weight-header">
+    <n-button text circle size="large" class="back-btn" @click="handleBack">
+      <n-icon size="24" :component="ArrowBackIcon" />
+    </n-button>
+  </div>
+  <div class="weight-main-card">
+    <h2 class="weight-h2">权重添加器</h2>
+    <n-divider style="margin-bottom: 24px; margin-top: 8px;" />
+    <div class="main-controls">
+      <!-- 输入/解析文本区 -->
+      <n-card size="small" class="input-card">
+        <n-input
+          v-model:value="inputText"
+          type="textarea"
+          :rows="4"
+          placeholder="在此输入或粘贴标签文本，用逗号、换行符或Tab分隔..."
+        />
+        <n-space justify="end" style="margin-top: 8px;">
+          <n-button type="primary" @click="handleParseAndAdd">解析并添加标签</n-button>
+        </n-space>
+      </n-card>
+      <!-- 标签库选择（可折叠） -->
+      <n-collapse>
+        <n-collapse-item title="从库选择标签">
+          <n-space align="center" style="margin-bottom: 8px;">
+            <n-select
+              v-model:value="selectedCategoryId"
+              :options="[{ label: '所有分类', value: '' }, ...categoryOptions]"
+              placeholder="筛选分类"
+              clearable
+              size="small"
+              style="min-width: 120px;"
             />
-            <!-- History Overlay -->
-            <n-collapse-transition :show="showHistory">
-                 <n-list hoverable clickable size="small" bordered style="margin-top: 10px; max-height: 150px; overflow-y: auto;">
-                     <template #header><div style="font-size: 12px; color: var(--n-text-color-3);">解析历史 (点击加载)</div></template>
-                     <n-list-item v-if="!extractionHistory.length">
-                         <n-empty size="small" description="暂无历史记录" />
-                     </n-list-item>
-                     <n-list-item v-for="(text, index) in extractionHistory" :key="index" @click="loadFromHistory(text)">
-                         {{ text.length > 50 ? text.slice(0, 50) + '...' : text }}
-                     </n-list-item>
-                 </n-list>
-            </n-collapse-transition>
-            <!-- Extraction Settings -->
-            <n-collapse-transition :show="showExtractionSettings">
-                 <n-card size="small" title="解析设置" :bordered="false" style="margin-top: 10px; background-color: var(--n-action-color);">
-                    <n-space vertical size="small">
-                      <n-space align="center">
-                         <span style="font-size: 12px; width: 80px;">分隔符:</span> 
-                         <n-input size="tiny" v-model:value="extractionSettings.delimiters" placeholder=",\n\t"/>
-                          </n-space>
-                       <n-checkbox size="small" v-model:checked="extractionSettings.trimWhitespace">去除首尾空格</n-checkbox>
-                       <n-checkbox size="small" v-model:checked="extractionSettings.removeEmpty">移除空标签</n-checkbox>
-                       <n-checkbox size="small" v-model:checked="extractionSettings.caseSensitiveMatch">匹配库时区分大小写</n-checkbox>
-                       <!-- Duplicate Handling Option -->
-                    </n-space>
-              </n-card>
-            </n-collapse-transition>
-            <template #action>
-              <n-button type="primary" @click="handleParseAndAdd" block>
-                <template #icon><n-icon :component="InputIcon" /></template>
-                解析并添加标签
-              </n-button>
-            </template>
-        </n-card>
-
-          <!-- Tag Library Selection -->
-          <n-card title="从库选择标签" size="small">
-              <template #header-extra>
-                 <n-space align="center">
-                     <!-- Category Filter -->
-                     <n-select
-                        v-model:value="selectedCategoryId"
-                        :options="[{ label: '所有分类', value: '' }, ...categoryOptions]"
-                        placeholder="筛选分类"
-                        clearable
-                        size="small"
-                        style="min-width: 120px; margin-right: 8px;"
-                     />
-                      <!-- View Toggle Button -->
-                     <n-tooltip trigger="hover">
-                        <template #trigger>
-                            <n-button text circle size="small" @click="tagsViewMode = tagsViewMode === 'grid' ? 'list' : 'grid'">
-                    <template #icon>
-                                    <n-icon :component="tagsViewMode === 'grid' ? ListIcon : TagIcon" />
-                    </template>
-                  </n-button>
-                        </template>
-                        切换{{ tagsViewMode === 'grid' ? '列表' : '网格' }}视图
-                     </n-tooltip>
-                </n-space>
-              </template>
-                  <n-input
-                    v-model:value="searchTerm"
-                placeholder="搜索标签库..."
-                    clearable
-                size="small"
-                style="margin-bottom: 10px;"
-             />
-            <n-scrollbar style="max-height: 350px;"> 
-                 <!-- Grid View -->
-                 <div v-if="tagsViewMode === 'grid'" class="tag-grid-view">
-                    <n-collapse arrow-placement="right" :default-expanded-names="defaultExpandedNames" accordion> 
-                       <template v-for="groupData in groupedFilteredTags" :key="groupData.group.id">
-                          <n-collapse-item 
-                             :title="groupData.group.name"
-                             :name="`group-${groupData.group.id}`" 
-                             v-if="(groupData as any).sortedCategories.length > 0" 
-                           >
-                              <div v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id" class="category-section-grid">
-                                 <div class="category-header-grid">{{ categoryData.category.name }}</div>
-                                 <n-flex wrap :size="[8, 8]" class="tag-list-grid">
-                                     <div 
-                                         v-for="tag in categoryData.tags" 
+            <n-input
+              v-model:value="searchTerm"
+              placeholder="搜索标签库..."
+              clearable
+              size="small"
+              style="margin-left: 8px; width: 180px;"
+            />
+            <n-button text circle size="small" @click="tagsViewMode = tagsViewMode === 'grid' ? 'list' : 'grid'" style="margin-left: 8px;">
+              <n-icon :component="tagsViewMode === 'grid' ? ListIcon : TagIcon" />
+            </n-button>
+          </n-space>
+          <n-scrollbar style="max-height: 220px;">
+            <template v-if="tagsViewMode === 'grid'">
+              <div v-for="groupData in groupedFilteredTags" :key="groupData.group.id">
+                <div v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id">
+                  <div class="category-header-grid">{{ categoryData.category.name }}</div>
+                  <n-flex wrap :size="[8, 8]" class="tag-list-grid">
+                    <div
+                      v-for="tag in categoryData.tags"
                       :key="tag.id"
-                                         class="tag-item-card" 
-                                         @click="toggleSelectionFromLibrary(tag)"
-                                         :class="{'tag-item-selected': selectedTags.some(st => st.id === tag.id)}"
-                                     >
-                                        <div class="tag-card-header">
-                                             <n-button text circle size="tiny" class="add-button" title="添加/移除标签">
-                                                <n-icon :component="AddIcon" />
-                        </n-button>
+                      class="tag-item-card"
+                      @click="toggleSelectionFromLibrary(tag)"
+                      :class="{'tag-item-selected': selectedTags.some(st => st.id === tag.id)}"
+                    >
+                      <div class="tag-card-body">
+                        <div class="tag-name">{{ tag.name }}</div>
+                        <div class="tag-keyword">{{ tag.keyword || '' }}</div>
+                      </div>
                     </div>
-                                        <div class="tag-card-body">
-                                            <div class="tag-name">{{ tag.name }}</div>
-                                            <div class="tag-keyword">{{ tag.keyword || '&nbsp;' }}</div>
-                                        </div>
-                                     </div>
-                                     <span v-if="categoryData.tags.length === 0" class="no-tags-in-category"></span>
-                                 </n-flex>
-                              </div>
-                          </n-collapse-item>
-                       </template>
-                       <n-empty v-if="groupedFilteredTags.length === 0 && !searchTerm" description="无可用分组或分类" size="small" style="margin-top: 20px;"/>
-                       <n-empty v-if="groupedFilteredTags.length === 0 && searchTerm" description="未搜索到匹配标签" size="small" style="margin-top: 20px;"/>
-                    </n-collapse>
-                  </div>
-                  
-                 <!-- List View -->
-                 <n-list v-else hoverable clickable size="small" class="tag-list-view">
-                     <template v-for="groupData in groupedFilteredTags" :key="`group-list-${groupData.group.id}`">
-                         <n-list-item v-if="(groupData as any).sortedCategories.length > 0" class="group-header-list">
-                              <n-thing :title="groupData.group.name">
-                                 <template #avatar> <n-icon :component="GroupIcon" /> </template>
-                              </n-thing>
-                         </n-list-item>
-                          <template v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id">
-                              <n-list-item 
-                                 v-for="tag in categoryData.tags" 
-                                 :key="tag.id" 
-                                 @click="toggleSelectionFromLibrary(tag)" 
-                                 :class="{'tag-item-selected': selectedTags.some(st => st.id === tag.id)}"
-                                 class="tag-list-item-indented"
-                               >
+                  </n-flex>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <div v-for="groupData in groupedFilteredTags" :key="groupData.group.id">
+                <div v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id">
+                  <div class="category-header-grid">{{ categoryData.category.name }}</div>
+                  <n-list hoverable clickable size="small" class="tag-list-view">
+                    <n-list-item
+                      v-for="tag in categoryData.tags"
+                      :key="tag.id"
+                      @click="toggleSelectionFromLibrary(tag)"
+                      :class="{'tag-item-selected': selectedTags.some(st => st.id === tag.id)}"
+                    >
                       <n-thing :title="tag.name">
                         <template #description>
-                                        <span class="tag-subtitles">{{ tag.keyword || tag.subtitles?.join(', ') || '&nbsp;' }}</span>
-                        </template>
-                        <template #header-extra>
-                                          <n-space size="small">
-                                              <!-- Use AddIcon, but click is on item -->
-                                              <n-button tertiary circle size="tiny" @click.stop="toggleSelectionFromLibrary(tag)" title="添加/移除标签">
-                                                 <template #icon><n-icon :component="AddIcon" /></template>
-                          </n-button>
-                                          </n-space>
+                          <span class="tag-keyword">{{ tag.keyword || '' }}</span>
                         </template>
                       </n-thing>
                     </n-list-item>
-                        </template>
-                     </template>
-                     <n-list-item v-if="groupedFilteredTags.length === 0 && !searchTerm">
-                         <n-empty description="无可用分组或分类" size="small" />
-                     </n-list-item>
-                      <n-list-item v-if="groupedFilteredTags.length === 0 && searchTerm">
-                         <n-empty description="未搜索到匹配标签" size="small" />
-                    </n-list-item>
                   </n-list>
-            </n-scrollbar>
-            </n-card>
-        </n-space>
-          </n-gi>
-          
-      <!-- Right Column: Selected Tags & Settings -->
-      <n-gi :span="24" :md="14">
-        <n-space vertical size="large">
-            <!-- Selected Tags Area -->
-            <n-card title="已选标签" size="small">
-              <template #header-extra>
-                <n-space align="center">
-                        <n-tag v-if="selectedTags.length > 0" type="success" size="tiny">{{ selectedTags.length }} 项</n-tag>
-                         <!-- Removed Layout Toggle -->
-                        <n-button text size="tiny" @click="resetWeights" title="重置权重">
-                            <template #icon><n-icon :component="ResetAllIcon"/></template>
-                  </n-button>
-                         <n-button text size="tiny" @click="resetAllTags" title="重置权重和括号">
-                            <template #icon><n-icon :component="ResetAllIcon"/></template>
-                  </n-button>
-                        <n-button text type="error" size="tiny" @click="clearTags" title="清空列表">
-                            <template #icon><n-icon :component="ClearIcon"/></template>
-                  </n-button>
-                </n-space>
-              </template>
-              
-                 <!-- NEW Quick Apply Structure -->
-                 <n-space vertical size="small" style="margin-bottom: 10px;">
-                     <!-- Row 1: Weight Presets -->
-                     <n-space align="center" wrap item-style="display: flex;">
-                        <span style="font-size: 12px; color: var(--n-text-color-3); margin-right: 5px;">权重:</span>
-                        <n-button 
-                          v-for="(_, preset) in weightPresets" 
-                          :key="preset"
-                          size="tiny"
-                           quaternary
-                          @click="applyWeightPreset(preset)"
-                          :disabled="selectedTags.length === 0"
-                        >{{ preset }}</n-button>
-                        <n-button 
-                          size="tiny"
-                           quaternary
-                          @click="applyRandomWeights"
-                          :disabled="selectedTags.length === 0"
-                           title="应用随机权重"
-                        >
-                           <template #icon><n-icon :component="RandomIcon" /></template>
-                        </n-button>
-                      </n-space>
-                      
-                     <!-- Row 2: Brackets & Global Nesting -->
-                      <n-space align="center" wrap item-style="display: flex;">
-                         <span style="font-size: 12px; color: var(--n-text-color-3); margin-right: 5px;">括号:</span>
-                         <n-button 
-                           v-for="bracket in bracketTypes.filter(b => b.value !== 'none')" 
-                           :key="bracket.value"
-                           size="tiny" 
-                           quaternary
-                           @click="applyBracketToAll(bracket.value as BracketType)"
-                           :disabled="selectedTags.length === 0"
-                           :title="`全部设为 ${bracket.example}`"
-                         >
-                           {{ bracket.example }}
-                         </n-button>
-                         <n-button 
-                           size="tiny"
-                           quaternary
-                           @click="applyBracketToAll('none')"
-                           :disabled="selectedTags.length === 0"
-                           title="移除所有括号"
-                         >
-                           无
-                         </n-button>
-                         <n-divider vertical />
-                         <span style="font-size: 12px; color: var(--n-text-color-3); margin-left: 5px;">全局嵌套:</span>
-                         <n-button-group size="tiny">
-                           <n-button @click="decreaseGlobalNesting" :disabled="globalNestingCount <= 0" title="减少嵌套层数">
-                               <template #icon><n-icon :component="DecreaseIcon" /></template>
-                           </n-button>
-                           <n-button disabled style="min-width: 25px; padding: 0 6px; text-align: center;">{{ globalNestingCount }}</n-button>
-                           <n-button @click="increaseGlobalNesting" :disabled="globalNestingCount >= 5" title="增加嵌套层数">
-                               <template #icon><n-icon :component="IncreaseIcon" /></template>
-                           </n-button>
-                         </n-button-group>
-                       </n-space>
-                 </n-space>
-                 <n-divider style="margin: 5px 0;"/>
-
-                 <!-- Selected Tags List -->
-                 <n-scrollbar style="max-height: 350px;"> 
-                    <div v-if="selectedTags.length > 0" class="selected-tags-grid">
-                      <!-- Grid Header -->
-                       <div class="selected-tag-item header">
-                          <div class="tag-name-col">标签</div>
-                          <div class="tag-weight-col">权重</div>
-                          <div class="tag-bracket-col">括号</div>
-                          <div class="tag-actions-col">操作</div>
-                    </div>
-                       <!-- Grid Rows -->
-                       <div v-for="(tag, index) in selectedTags" :key="tag.id" class="selected-tag-item">
-                           <div class="tag-name-col">
-                               <n-tooltip trigger="hover">
-                                   <template #trigger>
-                                       <span class="tag-text">{{ tag.name }}</span>
-                </template>
-                                   {{ tag.name }}
-                               </n-tooltip>
-                               <span v-if="tag.keyword && tag.keyword !== tag.name" class="tag-keyword-display"> ({{ tag.keyword }})</span>
-                           </div>
-                            <div class="tag-weight-col">
-                                <n-input-number
-                                  v-model:value="tagWeights[tag.id]"
-                                    size="tiny"
-                                  :min="0"
-                                    :max="maxWeight" 
-                                  :step="Math.pow(0.1, decimalPlaces)"
-                                  @update:value="(val) => val !== null && updateTagWeight(tag.id, val)"
-                                    style="width: 85px;"
-                                  />
-                            </div>
-                             <div class="tag-bracket-col">
-                                  <n-space :size="2" justify="center">
-                                <n-button 
-                                  v-for="bracket in bracketTypes.filter(b => b.value !== 'none')" 
-                                  :key="bracket.value"
-                                  size="tiny" 
-                                        quaternary 
-                                  :type="tagBrackets[tag.id] === bracket.value ? 'primary' : 'default'"
-                                  @click="toggleBracket(tag.id, bracket.value as BracketType)"
-                                        :title="`切换 ${bracket.example}`"
-                                >
-                                  {{ bracket.example }}
-                                </n-button>
-                                <n-button 
-                                  size="tiny"
-                                        quaternary
-                                  :type="tagBrackets[tag.id] === 'none' ? 'primary' : 'default'"
-                                        @click="toggleBracket(tag.id, 'none')"
-                                        title="移除括号"
-                                >
-                                  无
-                                </n-button>
-                                </n-space>
-                  </div>
-                             <div class="tag-actions-col">
-                                 <n-button text circle size="tiny" @click="randomizeTagWeight(tag.id)" title="随机权重">
-                                     <template #icon><n-icon :component="RandomIcon"/></template>
-                      </n-button>
-                                 <n-button text circle size="tiny" type="error" @click="removeTag(index)" title="移除标签">
-                                     <template #icon><n-icon :component="ClearIcon"/></template>
-                      </n-button>
-                    </div>
-                       </div>
-                    </div>
-                     <n-empty v-else description="请从左侧选择或输入标签" size="small" style="padding: 20px 0;"/>
-                 </n-scrollbar>
-            </n-card>
-
-            <!-- Result Card -->
-            <n-card title="生成结果" size="small">
-      <template #header-extra>
-        <n-select
-          v-model:value="activeTemplate"
-          :options="Object.entries(templates).map(([key, t]) => ({ label: t.name, value: key as any }))"
-                       size="small"
-          style="width: 150px;"
-                       title="选择输出模板格式"
-        />
-      </template>
-        <n-input
-          v-model:value="generatedPrompt"
-          type="textarea"
-                    placeholder="添加标签后将在此生成..."
-          :rows="4"
-                    readonly
-                 />
-                 <n-tooltip trigger="hover" v-if="templates[activeTemplate]">
-                     <template #trigger>
-                        <n-icon size="14" :component="InfoIcon" style="margin-top: 5px; color: var(--n-text-color-3); cursor: help;"/>
+                </div>
+              </div>
             </template>
-                     {{ templates[activeTemplate].description }}
-                 </n-tooltip>
-    </n-card>
-    
-            <!-- General Settings Card (Moved Down) -->
-            <n-card title="全局设置" size="small">
-                 <template #header-extra>
-                     <n-button text size="tiny" @click="saveSettings" title="手动保存所有设置">
-                        <template #icon><n-icon :component="SaveIcon"/></template>
-                     </n-button>
-                 </template>
-                 <!-- Use vertical space for stacking rows -->
-                 <n-space vertical size="medium" class="global-settings-space">
-                    <!-- Row 1: Weight Range -->
-                    <n-space align="center" justify="space-between" class="setting-row">
-                        <span class="setting-label">权重范围:</span>
-                <n-space align="center">
-                  <n-input-number
-                                size="small" 
-                                v-model:value="formattedMinWeight" 
-                    :step="Math.pow(0.1, decimalPlaces)"
-                                style="width: 80px;" 
-                                :min="0" 
-                                :max="formattedMaxWeight"
-                            />
-                            <span>-</span>
-                      <n-input-number
-                                size="small" 
-                                v-model:value="formattedMaxWeight" 
-                        :step="Math.pow(0.1, decimalPlaces)"
-                                style="width: 80px;" 
-                                :min="formattedMinWeight"
-                                :max="2" 
-                      />
-                    </n-space>
-                </n-space>
-                
-                    <!-- Row 2: Decimal Places -->
-                    <n-space align="center" justify="space-between" class="setting-row">
-                        <span class="setting-label">小数位数:</span>
-                  <n-input-number
-                            size="small" 
-                    v-model:value="decimalPlaces"
-                    :min="0"
-                    :max="3"
-                    :step="1"
-                            style="width: 80px;"
-                  />
-                </n-space>
-                    
-                    <!-- Row 3: Default Bracket -->
-                    <n-space align="center" justify="space-between" class="setting-row">
-                        <span class="setting-label">默认括号:</span>
-                        <n-select 
-              size="small"
-                            v-model:value="defaultBracket" 
-                            :options="bracketTypes" 
-                            style="width: 100px;"
-                  />
-                </n-space>
-                
-                    <!-- Row 4: Global Nesting -->
-                    <n-space align="center" justify="space-between" class="setting-row">
-                        <span class="setting-label">全局嵌套:</span>
-                        <n-button-group size="small">
-                            <n-button @click="decreaseGlobalNesting" :disabled="globalNestingCount <= 0">-</n-button>
-                            <n-button disabled style="min-width: 35px; text-align: center;">{{ globalNestingCount }}</n-button>
-                            <n-button @click="increaseGlobalNesting" :disabled="globalNestingCount >= 5">+</n-button>
-                        </n-button-group>
-                </n-space>
-              </n-space>
-            </n-card>
-        </n-space>
-          </n-gi>
-    </n-grid>
-
-     <!-- Fixed Action Bar -->
-    <div class="fixed-action-bar" :style="actionBarStyle">
-          <!-- Add Randomize Button Here -->
-          <n-button 
-            @click="applyRandomWeights" 
-            :disabled="selectedTags.length === 0"
-            size="large"
-            style="margin-right: 12px;"
-            quaternary
-          >
+            <n-empty v-if="groupedFilteredTags.length === 0 && !searchTerm" description="无可用分组或分类" size="small" style="margin-top: 20px;"/>
+            <n-empty v-if="groupedFilteredTags.length === 0 && searchTerm" description="未搜索到匹配标签" size="small" style="margin-top: 20px;"/>
+          </n-scrollbar>
+        </n-collapse-item>
+      </n-collapse>
+      <!-- 已选标签区 -->
+      <n-card size="small" class="selected-card">
+        <n-space justify="end" style="margin-bottom: 8px;">
+          <n-button type="primary" size="large" @click="applyRandomWeights" :disabled="selectedTags.length === 0">
             <template #icon><n-icon :component="RandomIcon" /></template>
             随机权重
           </n-button>
-          
-          <n-button 
-            type="primary" 
-            @click="copyToClipboard" 
-            :disabled="!generatedPrompt"
-            size="large"
-          >
-              <template #icon><n-icon :component="CopyIcon" /></template>
-              复制生成结果
+          <n-button size="small" @click="resetWeights" :disabled="selectedTags.length === 0">重置权重</n-button>
+          <n-button size="small" @click="resetAllTags" :disabled="selectedTags.length === 0">重置权重和括号</n-button>
+          <n-button size="small" type="error" @click="clearTags" :disabled="selectedTags.length === 0">清空</n-button>
+          <n-button text circle size="small" @click="selectedTagsViewMode = selectedTagsViewMode === 'grid' ? 'list' : 'grid'" style="margin-left: 8px;">
+            <n-icon :component="selectedTagsViewMode === 'grid' ? ListIcon : TagIcon" />
           </n-button>
-            
+        </n-space>
+        <div v-if="selectedTags.length > 0">
+          <n-scrollbar style="max-height: 400px; min-height: 40px;">
+            <template v-if="selectedTagsViewMode === 'grid'">
+              <div class="selected-tags-grid">
+                <div class="selected-tag-item header">
+                  <div class="tag-name-col">标签</div>
+                  <div class="tag-weight-col">权重</div>
+                  <div class="tag-bracket-col">括号</div>
+                  <div class="tag-nesting-col">嵌套</div>
+                  <div class="tag-actions-col">操作</div>
+                </div>
+                <div v-for="(tag, index) in selectedTags" :key="tag.id" class="selected-tag-item">
+                  <div class="tag-name-col">
+                    <div>{{ tag.name }}</div>
+                    <div class="tag-keyword-selected">{{ tag.keyword || '' }}</div>
+                  </div>
+                  <div class="tag-weight-col">
+                    <n-input-number v-model:value="tagWeights[tag.id]" size="tiny" :min="0" :max="maxWeight" :step="Math.pow(0.1, decimalPlaces)" @update:value="(val) => val !== null && updateTagWeight(tag.id, val)" style="width: 85px;" />
+                  </div>
+                  <div class="tag-bracket-col">
+                    <n-select v-model:value="tagBrackets[tag.id]" :options="bracketTypes" size="tiny" style="width: 80px;" />
+                  </div>
+                  <div class="tag-nesting-col">
+                    <n-input-number
+                      v-model:value="bracketNesting[tag.id]"
+                      size="tiny"
+                      :min="0"
+                      :max="5"
+                      :step="1"
+                      style="width: 90px;"
+                      :disabled="tagBrackets[tag.id] === 'none'"
+                    />
+                  </div>
+                  <div class="tag-actions-col">
+                    <n-button text circle size="tiny" type="error" @click="removeTag(index)">
+                      <template #icon><n-icon :component="ClearIcon"/></template>
+                    </n-button>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <n-list hoverable clickable size="small" class="selected-tags-list-view">
+                <n-list-item v-for="(tag, index) in selectedTags" :key="tag.id">
+                  <n-thing :title="tag.name">
+                    <template #description>
+                      <span class="tag-keyword-selected">{{ tag.keyword || '' }}</span>
+                    </template>
+                    <template #action>
+                      <n-space>
+                        <n-input-number v-model:value="tagWeights[tag.id]" size="tiny" :min="0" :max="maxWeight" :step="Math.pow(0.1, decimalPlaces)" @update:value="(val) => val !== null && updateTagWeight(tag.id, val)" style="width: 85px;" />
+                        <n-select v-model:value="tagBrackets[tag.id]" :options="bracketTypes" size="tiny" style="width: 80px;" />
+                        <n-input-number
+                          v-model:value="bracketNesting[tag.id]"
+                          size="tiny"
+                          :min="0"
+                          :max="5"
+                          :step="1"
+                          style="width: 90px;"
+                          :disabled="tagBrackets[tag.id] === 'none'"
+                        />
+                        <n-button text circle size="tiny" type="error" @click="removeTag(index)">
+                          <template #icon><n-icon :component="ClearIcon"/></template>
+                        </n-button>
+                      </n-space>
+                    </template>
+                  </n-thing>
+                </n-list-item>
+              </n-list>
+            </template>
+          </n-scrollbar>
+        </div>
+        <n-empty v-else description="请先输入或选择标签" size="small" style="padding: 20px 0;"/>
+      </n-card>
+      <!-- 生成结果区 -->
+      <n-card size="small" class="result-card">
+        <n-select
+          v-model:value="activeTemplate"
+          :options="Object.entries(templates).map(([key, t]) => ({ label: t.name, value: key as any }))"
+          size="small"
+          style="width: 150px; margin-bottom: 8px;"
+          title="选择输出模板格式"
+        />
+        <n-input
+          v-model:value="generatedPrompt"
+          type="textarea"
+          placeholder="添加标签后将在此生成..."
+          :rows="4"
+          readonly
+        />
+        <n-space justify="end" style="margin-top: 8px;">
+          <n-button type="primary" @click="copyToClipboard" :disabled="!generatedPrompt">
+            <template #icon><n-icon :component="CopyIcon" /></template>
+            复制生成结果
+          </n-button>
+        </n-space>
+      </n-card>
     </div>
-
+    <!-- 折叠面板：高级设置、历史、全局设置 -->
+    <n-collapse style="margin-top: 24px;">
+      <n-collapse-item title="高级设置">
+        <div style="padding: 8px 0;">
+          <!-- 解析设置表单 -->
+          <n-space vertical size="small">
+            <n-input v-model:value="extractionSettings.delimiters" size="tiny" placeholder=",\n\t" style="width: 120px;" />
+            <n-checkbox size="small" v-model:checked="extractionSettings.trimWhitespace">去除首尾空格</n-checkbox>
+            <n-checkbox size="small" v-model:checked="extractionSettings.removeEmpty">移除空标签</n-checkbox>
+            <n-checkbox size="small" v-model:checked="extractionSettings.caseSensitiveMatch">匹配库时区分大小写</n-checkbox>
+          </n-space>
+          <!-- 权重范围、小数位数、默认括号、全局嵌套等 -->
+          <n-space vertical size="small" style="margin-top: 12px;">
+            <n-space align="center">
+              <span>权重范围:</span>
+              <n-input-number size="small" v-model:value="formattedMinWeight" :step="Math.pow(0.1, decimalPlaces)" style="width: 80px;" :min="0" :max="formattedMaxWeight" />
+              <span>-</span>
+              <n-input-number size="small" v-model:value="formattedMaxWeight" :step="Math.pow(0.1, decimalPlaces)" style="width: 80px;" :min="formattedMinWeight" :max="2" />
+            </n-space>
+            <n-space align="center">
+              <span>小数位数:</span>
+              <n-input-number size="small" v-model:value="decimalPlaces" :min="0" :max="3" :step="1" style="width: 80px;" />
+            </n-space>
+            <n-space align="center">
+              <span>默认括号:</span>
+              <n-select size="small" v-model:value="defaultBracket" :options="bracketTypes" style="width: 100px;" />
+            </n-space>
+            <n-space align="center">
+              <span>全局嵌套:</span>
+              <n-button-group size="small">
+                <n-button @click="decreaseGlobalNesting" :disabled="globalNestingCount <= 0">-</n-button>
+                <n-button disabled style="min-width: 35px; text-align: center;">{{ globalNestingCount }}</n-button>
+                <n-button @click="increaseGlobalNesting" :disabled="globalNestingCount >= 5">+</n-button>
+              </n-button-group>
+            </n-space>
+          </n-space>
+        </div>
+      </n-collapse-item>
+      <n-collapse-item title="历史记录">
+        <n-list hoverable clickable size="small" bordered style="max-height: 150px; overflow-y: auto;">
+          <template #header><div style="font-size: 12px; color: var(--n-text-color-3);">解析历史 (点击加载)</div></template>
+          <n-list-item v-if="!extractionHistory.length">
+            <n-empty size="small" description="暂无历史记录" />
+          </n-list-item>
+          <n-list-item v-for="(text, index) in extractionHistory" :key="index" @click="loadFromHistory(text)">
+            {{ text.length > 50 ? text.slice(0, 50) + '...' : text }}
+          </n-list-item>
+        </n-list>
+      </n-collapse-item>
+      <n-collapse-item title="全局设置">
+        <n-space vertical size="small">
+          <n-button text size="tiny" @click="saveSettings" title="手动保存所有设置">
+            <template #icon><n-icon :component="SaveIcon"/></template>
+            手动保存所有设置
+          </n-button>
+        </n-space>
+      </n-collapse-item>
+    </n-collapse>
   </div>
 </template>
 
 <style scoped>
-.weight-generator-view {
-  /* Removed fixed height, let content flow */
-  /* height: calc(100vh - 60px); */ 
+.weight-header {
+  padding: 24px 0 0 0;
+  margin-left: 0;
 }
-
-/* Layout adjustments */
-.n-card {
-  margin-bottom: 0; /* Remove default bottom margin if using grid gap */
+.weight-main-card {
+  max-width: 900px;
+  margin: 32px auto 0 auto;
+  padding: 32px 16px 48px 16px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
 }
-
-/* Input/Parsing Area */
-.n-collapse-transition {
-  margin-top: 8px;
+.weight-h2 {
+  text-align: center;
+  font-weight: 600;
+  font-size: 22px;
+  margin-bottom: 0;
+  margin-top: 0;
+  letter-spacing: 1px;
 }
-
-/* Tag Library Selection */
-.tag-subtitles {
-  font-size: 0.85em;
-  color: var(--n-text-color-3);
+.main-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
-.tag-selected-in-list {
-   background-color: var(--n-item-color-active) !important;
-}
-.tag-selected-in-list :deep(.n-thing-header__title) {
-    color: var(--n-item-text-color-active) !important;
-}
-
-/* Selected Tags Area */
 .selected-tags-grid {
   border: 1px solid var(--n-divider-color);
   border-radius: var(--n-border-radius);
-  overflow: hidden; /* Clip content */
+  overflow: hidden;
 }
-
 .selected-tag-item {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) 100px 150px 60px; /* Adjust columns */
+  grid-template-columns: minmax(140px, 1.5fr) 110px 110px 110px 70px;
   align-items: center;
   padding: 6px 8px;
   border-bottom: 1px solid var(--n-divider-color);
-  transition: background-color 0.2s ease;
 }
 .selected-tag-item:last-child {
   border-bottom: none;
 }
-.selected-tag-item:hover {
-    background-color: var(--n-action-color);
-}
-
 .selected-tag-item.header {
   font-weight: 500;
   background-color: var(--n-action-color);
@@ -1264,261 +1076,58 @@ const exportPromptToFile = () => {
   font-size: 12px;
   padding: 4px 8px;
 }
-
 .tag-name-col,
 .tag-weight-col,
 .tag-bracket-col,
+.tag-nesting-col,
 .tag-actions-col {
   padding: 0 4px;
-  overflow: hidden; /* Prevent text overflow */
-  text-overflow: ellipsis; /* Add ellipsis for overflow */
-  white-space: nowrap; /* Prevent wrapping in grid cells */
-  font-size: 13px; /* Consistent font size */
-}
-.tag-name-col .tag-text {
-    display: inline-block;
-    max-width: 90%;
   overflow: hidden;
   text-overflow: ellipsis;
-    vertical-align: bottom;
+  white-space: nowrap;
+  font-size: 13px;
 }
-.tag-name-col .tag-keyword-display {
-    font-size: 0.85em;
-    color: var(--n-text-color-3);
-    margin-left: 4px;
-}
-
-.tag-weight-col {
-  text-align: center;
-}
-.tag-bracket-col {
-  text-align: center;
-}
-.tag-actions-col {
-  text-align: right;
-}
-
-/* General Settings - Optimized Styles */
-.global-settings-space {
-    padding: 5px 0; /* Add some vertical padding */
-}
-
-.setting-row {
-  width: 100%; /* Ensure space-between works */
-}
-
-.setting-label {
-  /* Remove fixed width */
-  flex-shrink: 0;
-  text-align: left; /* Align left */
-  font-size: 14px; /* Slightly larger */
-  color: var(--n-text-color-1); /* Standard text color */
-  font-weight: 500;
-  margin-right: 16px; /* Space between label and control */
-}
-
-/* Fixed Action Bar */
-.fixed-action-bar {
-  position: fixed;
-  bottom: 0;
-  right: 0;
-  height: 64px; 
-  background-color: var(--n-card-color);
-  border-top: 1px solid var(--n-border-color);
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
-  display: flex;
-  justify-content: center; 
-  align-items: center;
-  padding: 0 24px;
-  z-index: 10;
-  transition: left 0.3s var(--n-bezier), background-color 0.3s var(--n-bezier), border-color 0.3s var(--n-bezier); 
-}
-
-@media (max-width: 992px) { /* Adjust breakpoint as needed */
-  .selected-tag-item {
-     grid-template-columns: minmax(100px, 1fr) 90px 130px 55px; 
-  }
-}
-
-@media (max-width: 768px) {
-  .weight-generator-view {
-     padding-bottom: 70px; /* Ensure space for action bar */
-  }
-
-  .selected-tag-item {
-     grid-template-columns: 1fr 70px; /* Stack controls below */
-     row-gap: 5px;
-     padding: 8px;
-  }
-  .selected-tag-item.header {
-      display: none; /* Hide header on small screens */
-  }
-  .tag-name-col {
-      grid-column: 1 / 3; /* Span full width */
-      white-space: normal; /* Allow name to wrap */
-  }
-  .tag-weight-col {
-      grid-column: 1 / 2;
-      grid-row: 2 / 3;
-      text-align: left;
-      .n-input-number {
-          width: 90px !important; /* Force width if needed */
-      }
-  }
-  .tag-bracket-col {
-      grid-column: 2 / 3;
-      grid-row: 2 / 3;
-      justify-content: flex-start;
-      text-align: left;
-  }
-  .tag-actions-col {
-      grid-column: 1 / 3; /* Span full width below */
-      grid-row: 3 / 4;
-      text-align: right;
-      padding-top: 5px;
-      border-top: 1px solid var(--n-divider-color); 
-      margin-top: 5px;
-  }
-
-  .fixed-action-bar {
-    height: 56px; 
-    padding: 0 16px;
-    left: 0 !important; 
-  }
-
-  .fixed-action-bar .n-button {
-     padding-left: 10px;
-     padding-right: 10px;
-  }
-  .fixed-action-bar .n-button--large {
-      height: 40px;
-      font-size: 14px;
-  }
-}
-
-/* Tag Library Selection Styles */
-.tag-grid-view .n-collapse-item__header {
-    padding-top: 8px;
-    padding-bottom: 8px;
-}
-.tag-grid-view .n-collapse-item__content-inner {
-    padding-top: 5px !important;
-}
-
-.category-section-grid {
-    margin-bottom: 12px;
-}
-.category-section-grid:last-child {
-    margin-bottom: 0;
-}
-
 .category-header-grid {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--n-text-color-2);
-    margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--n-text-color-2);
+  margin-bottom: 8px;
 }
-
 .tag-list-grid {
-  /* gap: 8px; Inherited from n-flex */
+  margin-bottom: 12px;
 }
-
-.tag-list-view .group-header-list :deep(.n-list-item__main) {
-    font-weight: bold;
-    color: var(--n-text-color-1);
-}
-
-.tag-list-view .tag-list-item-indented {
-    padding-left: 30px !important; /* Indent tags under group */
-}
-
-/* Re-apply selected state highlight */
-.tag-item-card.tag-selected-in-list {
-    border-color: var(--n-primary-color-pressed);
-    box-shadow: 0 0 0 1px var(--n-primary-color-pressed);
-}
-.tag-list-view .tag-selected-in-list {
-   background-color: var(--n-item-color-active) !important;
-}
-.tag-list-view .tag-selected-in-list :deep(.n-thing-header__title) {
-    color: var(--n-item-text-color-active) !important;
-}
-
-/* NEW/MODIFIED Tag Card Styles */
 .tag-item-card {
-    border: 1px solid var(--n-border-color);
-    border-radius: 4px;
-    /* margin: 4px; Applied by n-flex gap */
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    background-color: var(--n-color);
-    transition: box-shadow 0.2s ease, border-color 0.2s ease;
-    position: relative;
-    overflow: hidden;
-    min-width: 100px; /* Adjust min width */
-    cursor: pointer;
+  border: 1px solid var(--n-border-color);
+  border-radius: 4px;
+  padding: 8px 12px;
+  background-color: var(--n-color);
+  cursor: pointer;
+  min-width: 90px;
+  text-align: center;
+  transition: box-shadow 0.2s, border-color 0.2s;
 }
-
-.tag-item-card:hover {
-    border-color: var(--n-primary-color-hover);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-}
-
-.tag-card-header {
-    display: flex;
-    justify-content: flex-end; /* Buttons to the right */
-    padding: 2px 4px;
-    background-color: var(--n-action-color); /* Subtle header background */
-    position: absolute;
-    top: 0;
-    right: 0;
-    left: 0;
-    opacity: 0; /* Hide initially */
-    transition: opacity 0.2s ease;
-}
-
-.tag-item-card:hover .tag-card-header {
-    opacity: 1;
-}
-
-.tag-card-header .add-button {
-   /* No special positioning needed now */
-   pointer-events: none; /* Click is on the card */
-}
-
-.tag-card-body {
-    padding: 22px 8px 6px 8px; /* Top padding to clear header */
-    text-align: center;
-}
-
-.tag-card-body .tag-name {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--n-text-color-1);
-    margin-bottom: 2px;
-    word-break: break-word;
-}
-
-.tag-card-body .tag-keyword {
-    font-size: 11px;
-    color: var(--n-text-color-3);
-    word-break: break-word;
-    min-height: 15px; /* Ensure space even if empty */
-}
-/* End NEW/MODIFIED Tag Card Styles */
-
-/* NEW: Style for selected tag cards */
 .tag-item-card.tag-item-selected {
-    border-color: var(--n-primary-color-pressed);
-    box-shadow: 0 0 0 1px var(--n-primary-color-pressed);
-    background-color: var(--n-item-color-active-hover);
+  border-color: var(--n-primary-color-pressed);
+  box-shadow: 0 0 0 1px var(--n-primary-color-pressed);
+  background-color: var(--n-item-color-active-hover);
 }
-
-.tag-list-view .tag-list-item-indented.tag-item-selected {
-   background-color: var(--n-item-color-active) !important; 
+.tag-card-body .tag-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--n-text-color-1);
+  margin-bottom: 2px;
+  word-break: break-word;
 }
-.tag-list-view .tag-list-item-indented.tag-item-selected :deep(.n-thing-header__title) {
-    color: var(--n-item-text-color-active) !important;
+.tag-card-body .tag-keyword {
+  font-size: 11px;
+  color: var(--n-text-color-3);
+  word-break: break-word;
+  min-height: 15px;
+}
+.tag-keyword-selected {
+  font-size: 11px;
+  color: var(--n-text-color-3);
+  margin-top: 2px;
+  word-break: break-all;
 }
 </style> 
