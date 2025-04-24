@@ -11,25 +11,31 @@ interface Props {
 }
 const props = defineProps<Props>();
 
+// Define a specific type for the form state
+interface TagFormData {
+  categoryId: string | null;
+  name: string;
+  subtitles: string[];
+  keyword: string;
+  // Add other optional fields from Tag if needed, e.g., color?: string, weight?: number
+}
+
 // --- Store & State ---
 const tagStore = useTagStore();
 const formRef = ref<FormInst | null>(null);
 
-// Use Omit<Tag, 'id'> for the reactive form data
-const formData = reactive<Omit<Tag, 'id'>>({
-  categoryId: '', // Required
-  name: '',       // Required
-  libraryId: '', // Initialize with empty string to fix type error
+// Use the specific form data type
+const formData = reactive<TagFormData>({
+  categoryId: null,
+  name: '',
   subtitles: [],
   keyword: '',
-  // color: undefined, // Optional fields
-  // weight: undefined,
 });
 
 // --- Computed ---
 // Prepare categories for the select dropdown
 const categoryOptions = computed<SelectOption[]>(() =>
-  tagStore.allCategories.map((cat: Category) => ({
+  tagStore.categories.map((cat: Category) => ({
     label: cat.name,
     value: cat.id,
   }))
@@ -55,14 +61,15 @@ watch(
   () => props.initialData,
   (newData) => {
     if (newData) {
-      formData.categoryId = newData.categoryId || '';
+      // Use nullish coalescing for potentially undefined categoryId from partial initialData
+      formData.categoryId = newData.categoryId ?? null;
       formData.name = newData.name || '';
       formData.subtitles = newData.subtitles ? [...newData.subtitles] : []; // Copy array
       formData.keyword = newData.keyword || '';
       // Update other fields if they exist
     } else {
       // Reset form if initialData becomes null/undefined (e.g., switching from edit to add)
-      formData.categoryId = '';
+      formData.categoryId = null;
       formData.name = '';
       formData.subtitles = [];
       formData.keyword = '';
@@ -88,9 +95,24 @@ const validate = (): Promise<void> => {
 
 // Expose getFormData method
 const getFormData = (): Omit<Tag, 'id'> => {
-  // Ensure subtitles is an array of strings, filter out empty ones if needed
+  // Validation should ensure categoryId is not null here
+  if (formData.categoryId === null) {
+    // This should ideally not happen if validation runs first
+    console.error("Validation failed to ensure categoryId is set in TagForm.");
+    // Consider throwing an error or returning a specific value indicating failure
+    // For now, let's throw an error to make the issue explicit if validation is bypassed.
+    throw new Error("所属分类为必填项 (Category is required).");
+  }
   const cleanedSubtitles = formData.subtitles?.filter(sub => typeof sub === 'string' && sub.trim() !== '') || [];
-  return { ...formData, subtitles: cleanedSubtitles };
+
+  // Now we know categoryId is a string, construct the final object matching Omit<Tag, 'id'>
+  return {
+    name: formData.name,
+    categoryId: formData.categoryId, // Known to be string here
+    subtitles: cleanedSubtitles,
+    keyword: formData.keyword,
+    // Add other properties from formData if they exist in Tag type
+  };
 };
 
 // Expose methods to parent

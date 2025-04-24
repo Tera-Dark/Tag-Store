@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, h } from 'vue';
 import { 
     NSelect, 
+    NTreeSelect,
     NInputNumber, 
     NInput, 
     NButton, 
@@ -14,7 +15,6 @@ import {
     NGi,
     NTag,
     NTooltip,
-    NSwitch,
     NCheckbox,
     NRadioGroup,
     NRadio,
@@ -29,20 +29,24 @@ import {
     ShuffleOutline as ShuffleIcon,
     ReloadOutline as ResetIcon,
     PricetagsOutline as TagIcon,
-    SaveOutline as SaveIcon,
     TimeOutline as HistoryIcon,
     FlashOutline as LeastUsedIcon,
-    ScaleOutline as BalanceIcon,
     TrendingUpOutline as MostUsedIcon,
     LockClosedOutline as LockIcon,
     LockOpenOutline as UnlockIcon,
     SyncOutline as RedrawIcon,
     TrashOutline as DeleteIcon,
-    CloudUploadOutline as SavePresetIcon
+    CloudUploadOutline as SavePresetIcon,
+    FolderOpenOutline as GroupIcon,
+    FolderOpenOutline,
+    RefreshOutline as RefreshIcon,
+    ImageOutline as ImageIcon,
+    ChevronDownOutline as CollapseIcon,
+    AddCircleOutline as AddIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useLibraryStore } from '../../stores/libraryStore';
-import type { Tag, DrawHistoryEntry, HistorySettings, PresetSettings } from '../../types/data';
+import type { Tag, Group, Category, DrawHistoryEntry, HistorySettings, PresetSettings } from '../../types/data';
 import { useRouter } from 'vue-router';
 import { useSettingsStore } from '../../stores/settingsStore';
 
@@ -53,7 +57,7 @@ const router = useRouter();
 const settingsStore = useSettingsStore();
 
 // --- 基本组件状态 ---
-const selectedCategoryIds = ref<string[]>([]);
+const selectedNodeKeys = ref<string[]>([]);
 const numTagsToDraw = ref<number>(5);
 const minTagsToDraw = ref<number>(1);
 const maxTagsToDraw = ref<number>(20);
@@ -75,9 +79,9 @@ const showSavePresetModal = ref<boolean>(false);
 const newPresetName = ref<string>('');
 const PRESETS_STORAGE_KEY = 'tagDrawerPresets';
 
-// --- 高级功能状态 ---
+// --- 高级功能状态 (Renamed ensureEachCategory) ---
 const useMultiCategoryMode = ref<boolean>(false);
-const ensureEachCategory = ref<boolean>(false);
+const ensureEachSelectedCategory = ref<boolean>(false);
 const noDuplicates = ref<boolean>(true);
 const drawMethod = ref<string>('random');
 const saveHistory = ref<boolean>(true);
@@ -92,14 +96,90 @@ const historyItems = ref<DrawHistoryEntry[]>([]);
 // --- 动画控制 ---
 const showResults = ref(false);
 
+// --- Computed style for action bar ---
+const actionBarStyle = computed(() => ({
+  left: settingsStore.isSidebarCollapsed ? '64px' : '240px'
+}));
+
 // --- 计算属性 ---
-const categoryOptions = computed(() => {
-    const options = tagStore.categories.map(cat => ({
-        label: cat.name,
-        value: cat.id
+const treeData = computed(() => {
+    const groupMap = new Map<string, { group: Group; categories: Category[] }>();
+    tagStore.groups.forEach(g => groupMap.set(g.id, { group: g, categories: [] }));
+    tagStore.categories.forEach(c => {
+        const groupData = groupMap.get(c.groupId);
+        if (groupData) {
+            groupData.categories.push(c);
+        }
+    });
+    groupMap.forEach(gData => gData.categories.sort((a, b) => a.name.localeCompare(b.name)));
+    const sortedGroups = Array.from(groupMap.values())
+        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || a.group.name.localeCompare(b.group.name));
+
+    const groupOptions = sortedGroups.map(gData => ({
+        label: gData.group.name,
+        key: `group-${gData.group.id}`,
+        icon: () => h(NIcon, null, { default: () => h(GroupIcon) }),
+        children: gData.categories.map(cat => ({
+            label: cat.name,
+            key: cat.id,
+            icon: () => h(NIcon, null, { default: () => h(TagIcon) })
+        }))
     }));
-    options.unshift({ label: '所有分类', value: ALL_CATEGORIES_KEY });
+
+    const options: Array<any> = [
+        {
+            label: '所有分类',
+            key: ALL_CATEGORIES_KEY,
+            icon: () => h(NIcon, null, { default: () => h(FolderOpenOutline) })
+        },
+        ...groupOptions
+    ];
+
     return options;
+});
+
+const finalSelectedCategoryIds = computed((): string[] => {
+    const keys = selectedNodeKeys.value;
+    if (!keys || keys.length === 0 || keys.includes(ALL_CATEGORIES_KEY)) {
+        return tagStore.categories.map(cat => cat.id);
+    }
+
+    const finalIds = new Set<string>();
+
+    keys.forEach(key => {
+        if (key.startsWith('group-')) {
+            const groupId = key.substring('group-'.length);
+            tagStore.categories.forEach(cat => {
+                if (cat.groupId === groupId) {
+                    finalIds.add(cat.id);
+                }
+            });
+        } else if (key !== ALL_CATEGORIES_KEY) {
+            finalIds.add(key);
+        }
+    });
+
+    return Array.from(finalIds);
+});
+
+const explicitlySelectedCategoryIds = computed((): string[] => {
+    const keys = selectedNodeKeys.value;
+    if (!keys || keys.length === 0 || keys.includes(ALL_CATEGORIES_KEY)) {
+        return [];
+    }
+
+    const finalIds = new Set<string>();
+    keys.forEach(key => {
+        if (!key.startsWith('group-') && key !== ALL_CATEGORIES_KEY) {
+            finalIds.add(key);
+        }
+    });
+    return Array.from(finalIds);
+});
+
+const disableEnsureEachSelected = computed(() => {
+    const keys = selectedNodeKeys.value;
+    return !keys || keys.length === 0 || keys.includes(ALL_CATEGORIES_KEY) || explicitlySelectedCategoryIds.value.length === 0;
 });
 
 const currentLibraryName = computed(() => {
@@ -112,10 +192,6 @@ const categoryCount = computed(() => {
 
 const tagCount = computed(() => {
     return tagStore.tags.length;
-});
-
-const isMultiCategoryActive = computed(() => {
-    return useMultiCategoryMode.value && selectedCategoryIds.value.length > 1;
 });
 
 const canRedraw = computed(() => {
@@ -153,7 +229,7 @@ const loadSettings = () => {
             numTagsToDraw.value = settings.numTagsToDraw || 5;
             noDuplicates.value = settings.noDuplicates !== undefined ? settings.noDuplicates : true;
             useMultiCategoryMode.value = settings.useMultiCategoryMode || false;
-            ensureEachCategory.value = settings.ensureEachCategory || false;
+            ensureEachSelectedCategory.value = settings.ensureEachSelectedCategory || false;
             drawMethod.value = settings.drawMethod || 'random';
             saveHistory.value = settings.saveHistory !== undefined ? settings.saveHistory : true;
         }
@@ -175,23 +251,25 @@ const loadSettings = () => {
     }
 };
 
-const saveSettings = () => {
+// Watch settings changes and save automatically to localStorage
+watch([numTagsToDraw, noDuplicates, useMultiCategoryMode, ensureEachSelectedCategory, drawMethod, saveHistory], () => {
     try {
         const settings = {
             numTagsToDraw: numTagsToDraw.value,
             noDuplicates: noDuplicates.value,
             useMultiCategoryMode: useMultiCategoryMode.value,
-            ensureEachCategory: ensureEachCategory.value,
+            ensureEachSelectedCategory: ensureEachSelectedCategory.value,
             drawMethod: drawMethod.value,
             saveHistory: saveHistory.value
         };
         localStorage.setItem('tagDrawerSettings', JSON.stringify(settings));
-        message.success('设置已保存');
+        // Optional: Add a subtle saving indicator or remove success message for auto-save
+        // message.success('设置已自动保存'); 
     } catch (error) {
-        console.error('保存设置失败:', error);
-        message.error('保存设置失败');
+        console.error('自动保存设置失败:', error);
+        // message.error('自动保存设置失败'); // Avoid spamming errors
     }
-};
+}, { deep: true });
 
 // --- 方法 ---
 
@@ -230,16 +308,16 @@ const drawTags = async () => {
     try {
         isDrawing.value = true;
         showResults.value = false;
-        lockedTagIds.value.clear(); // Clear locks on a full redraw
+        lockedTagIds.value.clear();
         
         let availableTags: Tag[] = [];
-        const useAllCategories = selectedCategoryIds.value.includes(ALL_CATEGORIES_KEY) || 
-                                selectedCategoryIds.value.length === 0;
+        const categoryIdsToDrawFrom = finalSelectedCategoryIds.value;
+        const useAllCategories = categoryIdsToDrawFrom.length === tagStore.categories.length && tagStore.categories.length > 0;
 
         if (useAllCategories) {
             availableTags = [...tagStore.tags];
         } else {
-            availableTags = tagStore.tags.filter(tag => selectedCategoryIds.value.includes(tag.categoryId));
+            availableTags = tagStore.tags.filter(tag => categoryIdsToDrawFrom.includes(tag.categoryId));
         }
 
         // 排除关键词
@@ -256,61 +334,62 @@ const drawTags = async () => {
         if (availableTags.length === 0) {
             drawnTags.value = [];
             message.warning('没有符合条件的标签可供抽取');
+            isDrawing.value = false;
             return;
         }
 
-        // Ensure category balance (if enabled)
-        if (ensureEachCategory.value && isMultiCategoryActive.value) {
-            const result: Tag[] = [];
-            const drawnInCategory = new Set<string>();
+        let finalDrawnTags: Tag[] = [];
+        const specificCategoryIds = explicitlySelectedCategoryIds.value;
 
-            // First pass: ensure each category gets one tag if possible
-            for (const categoryId of selectedCategoryIds.value) {
-                if (categoryId === ALL_CATEGORIES_KEY || result.length >= numTagsToDraw.value) continue;
+        if (ensureEachSelectedCategory.value && specificCategoryIds.length > 0) {
+            const result: Tag[] = [];
+            const drawnTagIds = new Set<string>();
+            const availableTagsForBalancing = [...availableTags];
+
+            for (const categoryId of specificCategoryIds) {
+                if (result.length >= numTagsToDraw.value) break;
                 
-                const tagsInCategory = availableTags.filter(t => t.categoryId === categoryId);
+                const tagsInCategory = availableTagsForBalancing.filter(t => t.categoryId === categoryId && !drawnTagIds.has(t.id));
                 if (tagsInCategory.length > 0) {
-                     // Apply selection method within the category for the first pick
                      const chosen = selectTags(tagsInCategory, 1);
-                     if(chosen.length > 0 && !drawnInCategory.has(chosen[0].id)) {
+                     if(chosen.length > 0) {
                          result.push(chosen[0]);
-                         drawnInCategory.add(chosen[0].id);
+                         drawnTagIds.add(chosen[0].id);
                      }
                 }
             }
 
-            // Second pass: fill remaining slots
             const remainingCount = numTagsToDraw.value - result.length;
             if (remainingCount > 0) {
-                const remainingAvailableTags = availableTags.filter(t => !drawnInCategory.has(t.id));
-                const additionalTags = selectTags(remainingAvailableTags, remainingCount);
-                result.push(...additionalTags);
+                const remainingAvailableTags = availableTags.filter(t => !drawnTagIds.has(t.id));
+                if (remainingAvailableTags.length > 0) {
+                    const additionalTags = selectTags(remainingAvailableTags, remainingCount);
+                    result.push(...additionalTags);
+                    additionalTags.forEach(t => drawnTagIds.add(t.id)); 
+                }
             }
             
-            drawnTags.value = result;
+            finalDrawnTags = result;
         } else {
-            // Standard draw without balance
-            drawnTags.value = selectTags(availableTags, numTagsToDraw.value);
+            finalDrawnTags = selectTags(availableTags, numTagsToDraw.value);
         }
 
-        // Update result state
+        drawnTags.value = finalDrawnTags;
+
         if (drawnTags.value.length < numTagsToDraw.value && drawnTags.value.length > 0) {
             message.info(`符合条件的标签不足 ${numTagsToDraw.value} 个，已抽取所有 ${drawnTags.value.length} 个。`);
         } else if (drawnTags.value.length === 0 && availableTags.length > 0) {
-            message.warning('没有符合条件的标签可供抽取（可能被关键词排除了）');
-        } else {
+            message.warning('没有符合条件的标签可供抽取（可能被关键词或平衡条件排除了）');
+        } else if (drawnTags.value.length > 0) {
             message.success(`成功抽取 ${drawnTags.value.length} 个标签`);
         }
         
-        // Update usage statistics
         updateTagUsage(drawnTags.value);
         
-        // Save to history
         if (saveHistory.value && drawnTags.value.length > 0) {
             addToHistory(drawnTags.value);
         }
         
-        // Show results
         showResults.value = true;
     } catch (error) {
         console.error('抽取标签时出错:', error);
@@ -338,11 +417,12 @@ const redrawUnlockedTags = async () => {
 
         // Prepare available tags for redraw (similar logic to drawTags but exclude *all* currently drawn tags initially)
         let baseAvailableTags: Tag[] = [];
-        const useAllCategories = selectedCategoryIds.value.includes(ALL_CATEGORIES_KEY) || selectedCategoryIds.value.length === 0;
+        const categoryIdsToUse = finalSelectedCategoryIds.value;
+        const useAllCategories = categoryIdsToUse.length === tagStore.categories.length && tagStore.categories.length > 0;
         if (useAllCategories) {
             baseAvailableTags = [...tagStore.tags];
         } else {
-            baseAvailableTags = tagStore.tags.filter(tag => selectedCategoryIds.value.includes(tag.categoryId));
+            baseAvailableTags = tagStore.tags.filter(tag => categoryIdsToUse.includes(tag.categoryId));
         }
 
         // Apply exclusion keywords
@@ -412,14 +492,11 @@ const addToHistory = (tags: Tag[]) => {
     // Capture current settings
     const currentSettings: HistorySettings = {
         numTags: numTagsToDraw.value,
-        // If 'All Categories' was implicitly selected (empty array or contains ALL_KEY), save an empty array
-        categories: selectedCategoryIds.value.includes(ALL_CATEGORIES_KEY) || selectedCategoryIds.value.length === 0 
-                    ? ['所有分类'] 
-                    : selectedCategoryIds.value.map(id => tagStore.categories.find(c => c.id === id)?.name || '未知分类'), // Store names for display
+        categories: finalSelectedCategoryIds.value,
         method: drawMethod.value,
         exclusions: exclusionKeywords.value,
         multiCategory: useMultiCategoryMode.value,
-        ensureBalance: ensureEachCategory.value
+        ensureBalance: ensureEachSelectedCategory.value
     };
     
     const historyItem: DrawHistoryEntry = {
@@ -431,9 +508,10 @@ const addToHistory = (tags: Tag[]) => {
 
     historyItems.value.unshift(historyItem);
     
-    // 限制历史记录数量
-    if (historyItems.value.length > 20) { // Keep limit consistent
-        historyItems.value.pop(); // Use pop for better performance than slice
+    // <<< Use history size from store >>>
+    const maxHistory = settingsStore.settings.tagDrawerHistorySize || 20; // Use default if store value invalid
+    if (historyItems.value.length > maxHistory) { 
+        historyItems.value.length = maxHistory; // More efficient than pop in loop
     }
     
     // 保存到本地存储
@@ -443,13 +521,8 @@ const addToHistory = (tags: Tag[]) => {
 // 从历史记录中重新加载 (Update type)
 const reloadFromHistory = (item: typeof historyItems.value[0]) => {
     drawnTags.value = [...item.tags];
-    // Optional: Restore settings as well?
-    // numTagsToDraw.value = item.settings.numTags;
-    // selectedCategoryIds.value = item.settings.categories; // Need to map names back to IDs if storing names
-    // drawMethod.value = item.settings.method;
-    // exclusionKeywords.value = item.settings.exclusions;
-    // useMultiCategoryMode.value = item.settings.multiCategory;
-    // ensureEachCategory.value = item.settings.ensureBalance;
+    selectedNodeKeys.value = [];
+    exclusionKeywords.value = item.settings.exclusions;
     showResults.value = true;
     message.success('已从历史记录加载标签');
 };
@@ -470,7 +543,7 @@ const resetUsageCounts = () => {
 
 // 基本控制方法
 const resetForm = () => {
-    selectedCategoryIds.value = [];
+    selectedNodeKeys.value = [];
     numTagsToDraw.value = 5;
     exclusionKeywords.value = '';
     message.info('设置已重置');
@@ -547,7 +620,7 @@ onMounted(() => {
 // 监听分类模式变化
 watch(useMultiCategoryMode, (newValue) => {
     if (!newValue) {
-        ensureEachCategory.value = false;
+        ensureEachSelectedCategory.value = false;
     }
 });
 
@@ -560,16 +633,13 @@ const presetOptions = computed(() => {
 
 // Gather current settings into a preset structure
 const gatherCurrentSettingsForPreset = (): PresetSettings => {
-    // Ensure selectedCategoryIds doesn't include ALL_CATEGORIES_KEY when saving
-    const categoryIdsToSave = selectedCategoryIds.value.filter(id => id !== ALL_CATEGORIES_KEY);
     return {
         numTags: numTagsToDraw.value,
-        // If 'All Categories' was implicitly selected (empty array or contains ALL_KEY), save an empty array
-        categoryIds: categoryIdsToSave.length === 0 && selectedCategoryIds.value.length <= 1 ? [] : categoryIdsToSave,
+        categoryIds: finalSelectedCategoryIds.value,
         method: drawMethod.value,
         exclusions: exclusionKeywords.value,
         multiCategory: useMultiCategoryMode.value,
-        ensureBalance: ensureEachCategory.value,
+        ensureBalance: ensureEachSelectedCategory.value,
     };
 };
 
@@ -584,12 +654,12 @@ const applyPreset = (presetName: string) => {
     
     const settings = preset.settings;
     numTagsToDraw.value = settings.numTags;
-    // If saved categoryIds is empty, it means 'All Categories' was intended
-    selectedCategoryIds.value = settings.categoryIds.length === 0 ? [ALL_CATEGORIES_KEY] : settings.categoryIds;
+    selectedNodeKeys.value = [];
+    message.info("应用预设：分类选择已重置");
     drawMethod.value = settings.method;
     exclusionKeywords.value = settings.exclusions;
     useMultiCategoryMode.value = settings.multiCategory;
-    ensureEachCategory.value = settings.ensureBalance;
+    ensureEachSelectedCategory.value = settings.ensureBalance;
     
     message.success(`已加载预设 "${presetName}"`);
 };
@@ -599,8 +669,6 @@ const handlePresetSelectionChange = (value: string | null) => {
     if (value) {
         applyPreset(value);
     } else {
-        // Optional: Reset settings when preset is cleared?
-        // resetForm(); // Or just leave settings as they are
         message.info('预设已取消选择');
     }
     // selectedPresetName is already updated by v-model
@@ -688,7 +756,7 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
 </script>
 
 <template>
-  <div class="tag-drawer-view">
+  <div class="tag-drawer-view" style="padding-bottom: 80px;">
     <n-page-header title="标签抽取器" @back="handleBack">
       <template #subtitle>
         从当前库中随机抽取标签组合，激发创作灵感
@@ -710,146 +778,157 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
     <n-divider />
 
     <n-tabs v-model:value="currentTab" type="line" animated>
-      <n-tab-pane name="basic" tab="基本设置">
+      <n-tab-pane name="basic" tab="抽取设置">
         <n-grid x-gap="24" cols="1 m:2" responsive="screen">
           <!-- 左侧设置面板 -->
           <n-gi>
-            <n-card title="抽取设置" class="settings-card">
-              <n-space vertical size="large">
-
-                <!-- 预设管理 -->
-                <div class="setting-group preset-management">
-                  <div class="setting-label">抽取预设</div>
-                  <n-space align="center">
-                    <n-select
-                      v-model:value="selectedPresetName"
-                      :options="presetOptions"
-                      placeholder="加载或管理预设"
-                      clearable
-                      @update:value="handlePresetSelectionChange" 
-                      style="flex-grow: 1; min-width: 150px;"
-                    />
-                    <n-tooltip trigger="hover">
-                      <template #trigger>
-                        <n-button @click="openSavePresetModal" circle secondary>
-                          <template #icon><n-icon :component="SavePresetIcon" /></template>
-                        </n-button>
-                      </template>
-                      保存当前设置为新预设
-                    </n-tooltip>
-                    <n-popconfirm
-                      v-if="selectedPresetName"
-                      @positive-click="deleteSelectedPreset"
-                      positive-text="确认删除"
-                      negative-text="取消"
-                    >
-                      <template #trigger>
-                         <n-tooltip trigger="hover">
-                            <template #trigger>
-                                <n-button type="error" circle secondary>
-                                <template #icon><n-icon :component="DeleteIcon" /></template>
-                                </n-button>
-                            </template>
-                            删除选中的预设
-                        </n-tooltip>
-                      </template>
-                      确认删除预设 "{{ selectedPresetName }}" 吗？此操作无法撤销。
-                    </n-popconfirm>
-                  </n-space>
-                </div>
-                <n-divider /> 
-                <!-- 预设管理结束 -->
-
-                <!-- 抽取数量控制 -->
-                <div class="setting-group">
-                  <div class="setting-label">抽取数量</div>
-                  <div class="number-control">
-                    <n-button secondary circle size="small" @click="decreaseCount" :disabled="numTagsToDraw <= minTagsToDraw">
-                      -
-                    </n-button>
-                    <n-input-number
-                      v-model:value="numTagsToDraw"
-                      :min="minTagsToDraw"
-                      :max="maxTagsToDraw"
-                      class="count-input"
-                    />
-                    <n-button secondary circle size="small" @click="increaseCount" :disabled="numTagsToDraw >= maxTagsToDraw">
-                      +
-                    </n-button>
+            <n-card title="设置" class="settings-card">
+              <n-scrollbar style="max-height: calc(100vh - 250px);" trigger="hover">
+                <n-space vertical size="large" style="padding-right: 10px;"> 
+                  <!-- 预设管理 -->
+                  <div class="setting-group preset-management">
+                    <div class="setting-label">抽取预设</div>
+                    <n-space align="center">
+                      <n-select
+                        v-model:value="selectedPresetName"
+                        :options="presetOptions"
+                        placeholder="加载或管理预设"
+                        clearable
+                        @update:value="handlePresetSelectionChange" 
+                        style="flex-grow: 1; min-width: 150px;"
+                      />
+                      <n-tooltip trigger="hover">
+                        <template #trigger>
+                          <n-button @click="openSavePresetModal" circle secondary>
+                            <template #icon><n-icon :component="SavePresetIcon" /></template>
+                          </n-button>
+                        </template>
+                        保存当前设置为新预设
+                      </n-tooltip>
+                      <n-popconfirm
+                        v-if="selectedPresetName"
+                        @positive-click="deleteSelectedPreset"
+                        positive-text="确认删除"
+                        negative-text="取消"
+                      >
+                        <template #trigger>
+                           <n-tooltip trigger="hover">
+                              <template #trigger>
+                                  <n-button type="error" circle secondary>
+                                  <template #icon><n-icon :component="DeleteIcon" /></template>
+                                  </n-button>
+                              </template>
+                              删除选中的预设
+                          </n-tooltip>
+                        </template>
+                        确认删除预设 "{{ selectedPresetName }}" 吗？此操作无法撤销。
+                      </n-popconfirm>
+                    </n-space>
                   </div>
-                </div>
-                
-                <!-- 分类选择模式 -->
-                <div class="setting-group">
-                  <n-space justify="space-between" align="center">
-                    <div class="setting-label">分类选择模式</div>
-                    <n-switch v-model:value="useMultiCategoryMode">
-                      <template #checked>多分类</template>
-                      <template #unchecked>单分类</template>
-                    </n-switch>
-                  </n-space>
+                  <n-divider /> 
+                  <!-- 预设管理结束 -->
+
+                  <!-- 抽取数量控制 (Enhanced) -->
+                  <div class="setting-group number-control-group">
+                    <div class="setting-label">抽取数量</div>
+                    <div class="number-control">
+                      <n-button secondary circle size="small" @click="decreaseCount" :disabled="numTagsToDraw <= minTagsToDraw">
+                        -
+                      </n-button>
+                      <n-input-number
+                        v-model:value="numTagsToDraw"
+                        :min="minTagsToDraw"
+                        :max="maxTagsToDraw"
+                        class="count-input"
+                      />
+                      <n-button secondary circle size="small" @click="increaseCount" :disabled="numTagsToDraw >= maxTagsToDraw">
+                        +
+                      </n-button>
+                    </div>
+                  </div>
                   
                   <!-- 分类选择 -->
-                  <n-select
-                    v-model:value="selectedCategoryIds"
-                    :multiple="useMultiCategoryMode"
-                    :options="categoryOptions"
-                    placeholder="选择分类 (默认所有)"
-                    clearable
-                    class="mt-2"
-                  />
-                  
-                  <!-- 分类平衡选项 -->
-                  <div v-if="isMultiCategoryActive" class="balance-option mt-2">
-                    <n-checkbox v-model:checked="ensureEachCategory">
-                      <n-space align="center" :size="4">
-                        <n-icon :component="BalanceIcon" />
-                        <span>分类平衡模式（确保每个分类至少抽取一个标签）</span>
-                      </n-space>
-                    </n-checkbox>
+                  <div class="setting-group">
+                      <div class="setting-label">抽取范围</div>
+                      <n-tree-select
+                          v-model:value="selectedNodeKeys"
+                          :options="treeData"
+                          multiple
+                          cascade
+                          checkable
+                          clearable
+                          placeholder="选择分组或分类 (默认全部)"
+                          size="small" 
+                          style="width: 100%;" 
+                          max-tag-count="responsive"
+                          fallback-option-value="__FALLBACK__" 
+                      />
+                      <!-- NEW Checkbox -->
+                      <n-checkbox 
+                        v-model:checked="ensureEachSelectedCategory"
+                        :disabled="disableEnsureEachSelected"
+                        class="mt-2"
+                      >
+                        确保每个选中分类至少一个
+                      </n-checkbox>
+                      <n-tooltip trigger="hover" v-if="disableEnsureEachSelected">
+                        <template #trigger>
+                          <span style="margin-left: 4px; color: var(--n-text-color-disabled); cursor: help;">(?)</span>
+                        </template>
+                        选择"所有分类"或未选择具体分类时禁用此选项。
+                      </n-tooltip>
                   </div>
-                </div>
-                
-                <!-- 排除关键词 -->
-                <div class="setting-group">
-                  <div class="setting-label">排除关键词</div>
-                  <n-input
-                    v-model:value="exclusionKeywords"
-                    type="text"
-                    placeholder="排除关键词 (用逗号分隔)"
-                    clearable
-                  />
-                </div>
-                
-                <!-- 操作按钮 -->
-                <n-space justify="space-between">
-                  <n-button 
-                    type="primary" 
-                    size="large" 
-                    @click="drawTags" 
-                    :loading="isDrawing"
-                    :disabled="tagCount === 0"
-                    style="flex: 1;"
-                  >
-                    <template #icon>
-                      <n-icon :component="ShuffleIcon" />
-                    </template>
-                    {{ isDrawing ? '抽取中...' : '开始抽取' }}
-                  </n-button>
-                  <n-button 
-                    type="default" 
-                    size="large" 
-                    @click="resetForm" 
-                    :disabled="isDrawing"
-                    secondary
-                  >
-                    <template #icon>
-                      <n-icon :component="ResetIcon" />
-                    </template>
-                    重置
-                  </n-button>
+                  
+                  <!-- 排除关键词 -->
+                  <div class="setting-group">
+                    <div class="setting-label">排除关键词</div>
+                    <n-input
+                      v-model:value="exclusionKeywords"
+                      type="text"
+                      placeholder="排除关键词 (用逗号分隔)"
+                      clearable
+                    />
+                  </div>
+
+                  <n-divider />
+                  
+                  <!-- MOVED FROM ADVANCED: 抽取方法 -->
+                  <div class="setting-group">
+                    <div class="setting-label">抽取方法</div>
+                    <n-radio-group v-model:value="drawMethod" name="drawMethod">
+                      <n-space>
+                        <n-radio value="random">
+                          <n-space :size="4" align="center">
+                            <n-icon :component="ShuffleIcon" />
+                            <span>完全随机</span>
+                          </n-space>
+                        </n-radio>
+                        <n-radio value="leastUsed">
+                          <n-space :size="4" align="center">
+                            <n-icon :component="LeastUsedIcon" />
+                            <span>最少使用优先</span>
+                          </n-space>
+                        </n-radio>
+                        <n-radio value="mostUsed">
+                          <n-space :size="4" align="center">
+                            <n-icon :component="MostUsedIcon" />
+                            <span>最常用优先</span>
+                          </n-space>
+                        </n-radio>
+                      </n-space>
+                    </n-radio-group>
+                  </div>
+                  
+                  <!-- MOVED FROM ADVANCED: 重复处理 & 历史记录 -->
+                  <div class="setting-group">
+                    <div class="setting-label">其他选项</div>
+                    <n-space>
+                      <n-checkbox v-model:checked="noDuplicates">禁止重复标签</n-checkbox>
+                      <n-checkbox v-model:checked="saveHistory">保存抽取历史</n-checkbox>
+                    </n-space>
+                  </div>
                 </n-space>
-              </n-space>
+              </n-scrollbar>
             </n-card>
           </n-gi>
           
@@ -874,28 +953,6 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
                     </template>
                     重新抽取未锁定的标签位
                   </n-tooltip>
-                  <n-tooltip trigger="hover" placement="top">
-                    <template #trigger>
-                      <n-button text @click="copyResults(true)" size="small">
-                        <template #icon>
-                          <n-icon :component="CopyIcon" />
-                        </template>
-                        复制标签
-                      </n-button>
-                    </template>
-                    只复制标签名称
-                  </n-tooltip>
-                  <n-tooltip trigger="hover" placement="top">
-                    <template #trigger>
-                      <n-button text @click="copyResults(false)" size="small">
-                        <template #icon>
-                          <n-icon :component="CopyIcon" />
-                        </template>
-                        复制完整
-                      </n-button>
-                    </template>
-                    复制完整结果（包含分类和子标题）
-                  </n-tooltip>
                 </n-space>
               </template>
               
@@ -914,13 +971,25 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
                   v-for="(tag, index) in drawnTags" 
                   :key="tag.id"
                   class="result-item"
-                  :style="{ animationDelay: `${index * 0.1}s` }"
+                  :style="{ transitionDelay: `${index * 0.07}s` }"
                 >
                   <div class="result-tag">
                     <div class="result-tag-header">
-                      <div class="result-category">
-                        {{ tagStore.categories.find(c => c.id === tag.categoryId)?.name || '未分类' }}
-                      </div>
+                      <n-space align="center" :wrap-item="false" :size="4">
+                        <div class="result-category">
+                          {{ tagStore.categories.find(c => c.id === tag.categoryId)?.name || '未分类' }}
+                        </div>
+                        <n-tag 
+                          v-for="subtitle in (tag.subtitles || [])" 
+                          :key="subtitle"
+                          type="default" 
+                          size="tiny" 
+                          round
+                          class="subtitle-tag"
+                        >
+                          {{ subtitle }}
+                        </n-tag>
+                      </n-space>
                       <n-button text circle size="small" @click="toggleLock(tag.id)" class="lock-button">
                         <template #icon>
                           <n-icon :component="lockedTagIds.has(tag.id) ? LockIcon : UnlockIcon" />
@@ -928,8 +997,8 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
                       </n-button>
                     </div>
                     <div class="result-content">{{ tag.name }}</div>
-                    <div v-if="tag.subtitles && tag.subtitles.length > 0" class="result-subtitle">
-                      {{ tag.subtitles.join(' / ') }}
+                    <div class="result-subtitle">
+                      {{ tag.keyword || '' }} 
                     </div>
                     <div class="result-usage" v-if="getTagUsageCount(tag.id) > 0">
                       <n-tag size="small" type="info">
@@ -944,64 +1013,22 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
         </n-grid>
       </n-tab-pane>
       
-      <!-- 高级设置 -->
-      <n-tab-pane name="advanced" tab="高级设置">
-        <n-card title="高级设置">
+      <!-- 高级设置 (Content adjusted) -->
+      <n-tab-pane name="advanced" tab="数据管理">
+        <n-card title="数据管理">
           <n-space vertical size="large">
-            <!-- 抽取方法 -->
-            <div class="setting-group">
-              <div class="setting-label">抽取方法</div>
-              <n-radio-group v-model:value="drawMethod" name="drawMethod">
-                <n-space>
-                  <n-radio value="random">
-                    <n-space :size="4" align="center">
-                      <n-icon :component="ShuffleIcon" />
-                      <span>完全随机</span>
-                    </n-space>
-                  </n-radio>
-                  <n-radio value="leastUsed">
-                    <n-space :size="4" align="center">
-                      <n-icon :component="LeastUsedIcon" />
-                      <span>最少使用优先</span>
-                    </n-space>
-                  </n-radio>
-                  <n-radio value="mostUsed">
-                    <n-space :size="4" align="center">
-                      <n-icon :component="MostUsedIcon" />
-                      <span>最常用优先</span>
-                    </n-space>
-                  </n-radio>
-                </n-space>
-              </n-radio-group>
-            </div>
-            
-            <!-- 重复处理 -->
-            <div class="setting-group">
-              <div class="setting-label">重复标签处理</div>
-              <n-checkbox v-model:checked="noDuplicates">禁止重复标签</n-checkbox>
-            </div>
-            
-            <!-- 历史记录 -->
-            <div class="setting-group">
-              <div class="setting-label">历史记录</div>
-              <n-checkbox v-model:checked="saveHistory">保存抽取历史</n-checkbox>
-            </div>
-            
             <!-- 重置统计 -->
             <div class="setting-group">
               <div class="setting-label">使用统计</div>
-              <n-button @click="resetUsageCounts" type="warning" secondary size="small">
-                重置所有标签使用统计
-              </n-button>
+              <n-popconfirm @positive-click="resetUsageCounts">
+                <template #trigger>
+                  <n-button type="warning" secondary size="small">
+                    重置所有标签使用统计
+                  </n-button>
+                </template>
+                确认要重置所有标签的使用次数统计吗？此操作不可逆。
+              </n-popconfirm>
             </div>
-            
-            <!-- 保存按钮 -->
-            <n-button type="primary" @click="saveSettings">
-              <template #icon>
-                <n-icon :component="SaveIcon" />
-              </template>
-              保存设置
-            </n-button>
           </n-space>
         </n-card>
       </n-tab-pane>
@@ -1073,6 +1100,73 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
       />
     </n-modal>
 
+    <!-- Fixed Action Bar -->
+    <div class="fixed-action-bar" :style="actionBarStyle">
+      <n-button 
+        type="primary" 
+        size="large" 
+        @click="drawTags" 
+        :loading="isDrawing"
+        :disabled="tagCount === 0"
+        style="min-width: 150px; margin-right: 12px;"
+      >
+        <template #icon>
+          <n-icon :component="ShuffleIcon" />
+        </template>
+        {{ isDrawing ? '抽取中...' : '开始抽取' }}
+      </n-button>
+      
+      <n-button 
+        type="default" 
+        size="large" 
+        @click="resetForm" 
+        :disabled="isDrawing"
+        quaternary
+        style="margin-right: 24px;"
+      >
+        <template #icon>
+          <n-icon :component="ResetIcon" />
+        </template>
+        重置设置
+      </n-button>
+
+      <n-tooltip trigger="hover" placement="top">
+        <template #trigger>
+          <n-button 
+            text 
+            @click="copyResults(true)" 
+            size="large"
+            :disabled="drawnTags.length === 0"
+            style="margin-left: 24px;"
+          >
+            <template #icon>
+              <n-icon :component="CopyIcon" />
+            </template>
+            复制标签
+          </n-button>
+        </template>
+        只复制标签名称 (逗号分隔)
+      </n-tooltip>
+
+      <n-tooltip trigger="hover" placement="top">
+        <template #trigger>
+          <n-button 
+            text 
+            @click="copyResults(false)" 
+            size="large"
+            :disabled="drawnTags.length === 0"
+            style="margin-left: 12px;"
+          >
+            <template #icon>
+              <n-icon :component="CopyIcon" />
+            </template>
+            复制完整
+          </n-button>
+        </template>
+        复制完整结果 (含分类/子标题)
+      </n-tooltip>
+    </div>
+
   </div>
 </template>
 
@@ -1085,12 +1179,11 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
 
 .settings-card, .results-card {
   height: 100%;
-  min-height: 480px;
+  min-height: calc(100vh - 220px); 
 }
 
-.settings-card {
-  background-color: var(--n-card-color);
-  transition: box-shadow 0.3s ease;
+.settings-card .n-scrollbar-content {
+  padding-right: 10px;
 }
 
 .setting-group {
@@ -1104,6 +1197,13 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
   color: var(--n-text-color-2);
 }
 
+.number-control-group {
+  padding: 10px;
+  background-color: var(--n-action-color);
+  border-radius: var(--n-border-radius);
+  border: 1px solid var(--n-divider-color);
+}
+
 .number-control {
   display: flex;
   align-items: center;
@@ -1111,9 +1211,22 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
 }
 
 .count-input {
-  flex: 1;
+  flex-grow: 1;
   text-align: center;
-  width: 100px;
+  min-width: 80px;
+}
+
+.number-control .count-input :deep(input) {
+  font-size: 1.4em;
+  font-weight: bold;
+  text-align: center;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.number-control .n-button--small {
+  width: 30px;
+  height: 30px;
 }
 
 .mt-2 {
@@ -1164,13 +1277,13 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
 
 .result-item-enter-active,
 .result-item-leave-active {
-  transition: all 0.3s ease;
+  transition: opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .result-item-enter-from,
 .result-item-leave-to {
   opacity: 0;
-  transform: translateY(30px);
+  transform: translateY(25px) scale(0.9);
 }
 
 .result-tag {
@@ -1190,32 +1303,38 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
 .result-tag-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 6px;
-}
-
-.lock-button {
-  margin-left: 8px;
 }
 
 .result-category {
   font-size: 13px;
   color: var(--n-primary-color);
-  margin-bottom: 6px;
   font-weight: 500;
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.subtitle-tag {
+  background-color: var(--n-action-color);
+  color: var(--n-text-color-3);
+}
+
+.lock-button {
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 
 .result-content {
   font-size: 16px;
-  color: var(--n-text-color);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   font-weight: 500;
 }
 
 .result-subtitle {
   font-size: 13px;
   color: var(--n-text-color-3);
-  font-style: italic;
+  font-style: normal;
   margin-bottom: 6px;
 }
 
@@ -1253,7 +1372,7 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
     font-size: 12px;
     color: var(--n-text-color-3);
     margin-bottom: 8px;
-    word-break: break-all; /* Prevent long settings from overflowing */
+    word-break: break-all;
 }
 
 .history-tags {
@@ -1266,69 +1385,66 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
   margin-right: 0;
 }
 
-.balance-option {
-  padding: 8px;
-  background-color: rgba(var(--n-primary-color-rgb), 0.08);
-  border-radius: 6px;
-}
-
-/* 滚动条美化 */
-.results-list::-webkit-scrollbar,
-.history-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.results-list::-webkit-scrollbar-track,
-.history-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.results-list::-webkit-scrollbar-thumb,
-.history-list::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.1);
-  border-radius: 3px;
-}
-
-.results-list::-webkit-scrollbar-thumb:hover,
-.history-list::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.2);
-}
-
-/* 深色模式适配 */
-:deep(.n-theme-dark) .results-list::-webkit-scrollbar-thumb,
-:deep(.n-theme-dark) .history-list::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-:deep(.n-theme-dark) .results-list::-webkit-scrollbar-thumb:hover,
-:deep(.n-theme-dark) .history-list::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.2);
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .tag-drawer-view {
-    padding: 16px;
-  }
-  
-  .settings-card, .results-card {
-    min-height: 360px;
-  }
-  
-  .results-card {
-    margin-top: 16px;
-  }
-}
-
-.preset-management {
-  /* Optional: Add specific styles */
-  margin-bottom: 0; /* Align with divider */
-}
-
 .history-settings-missing {
     font-size: 12px;
     color: var(--n-text-color-disabled);
     font-style: italic;
     margin-bottom: 8px;
+}
+
+.results-card .n-card-header__extra {
+  flex-shrink: 0;
+}
+
+/* Fixed Action Bar */
+.fixed-action-bar {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  height: 64px;
+  background-color: var(--n-card-color);
+  border-top: 1px solid var(--n-border-color);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 24px;
+  z-index: 10;
+  transition: left 0.3s var(--n-bezier), background-color 0.3s var(--n-bezier), border-color 0.3s var(--n-bezier);
+}
+
+@media (max-width: 768px) {
+  .tag-drawer-view {
+    padding: 16px;
+    padding-bottom: 80px;
+  }
+  
+  .settings-card, .results-card {
+    min-height: auto;
+  }
+  
+  .results-card {
+    margin-top: 16px;
+  }
+
+  .fixed-action-bar {
+    height: auto;
+    min-height: 56px;
+    padding: 8px 16px;
+    left: 0 !important;
+  }
+
+  .fixed-action-bar .n-button {
+     padding-left: 10px;
+     padding-right: 10px;
+     margin-bottom: 4px;
+  }
+  .fixed-action-bar .n-button--large {
+      height: 40px;
+      font-size: 14px;
+  }
+  .fixed-action-bar .n-divider--vertical {
+      display: none;
+  }
 }
 </style> 

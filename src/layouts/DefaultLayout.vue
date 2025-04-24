@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { NLayout, NLayoutSider, NLayoutHeader, NLayoutContent } from 'naive-ui';
-import { ref } from 'vue';
+// import { ref } from 'vue'; // No longer needed for local state
 import AppSidebar from '../components/AppSidebar.vue';
 import LibrarySwitcher from '../components/global/LibrarySwitcher.vue';
 import { useSettingsStore } from '../stores/settingsStore';
 
-const settingsStore = useSettingsStore();
+const settingsStore = useSettingsStore(); // Use the store
 
-// --- Sidebar State ---
-const sidebarCollapsed = ref(false);
+// --- Sidebar State (Removed local state) ---
+// const sidebarCollapsed = ref(false);
 
-// --- Sidebar Toggle Handler ---
-const handleToggleSidebar = () => {
-  sidebarCollapsed.value = !sidebarCollapsed.value;
-};
+// --- Sidebar Toggle Handler (Removed local handler) ---
+// const handleToggleSidebar = () => {
+//   sidebarCollapsed.value = !sidebarCollapsed.value;
+// };
 </script>
 
 <template>
@@ -23,17 +23,17 @@ const handleToggleSidebar = () => {
       bordered
       :width="240"
       :collapsed-width="64"
-      :collapsed="sidebarCollapsed"
+      :collapsed="settingsStore.isSidebarCollapsed"
       collapse-mode="width"
       :show-trigger="false"
       :native-scrollbar="false"
       style="height: 100%; position: relative; z-index: 1000;"
-      :style="{ backgroundColor: '#151515' }"
+      :style="{ backgroundColor: settingsStore.naiveThemeOverrides.Layout?.siderColor || '#151515' }"
     >
       <!-- 侧边栏组件 -->
       <AppSidebar 
-        :collapsed="sidebarCollapsed"
-        @toggle-sidebar="handleToggleSidebar"
+        :collapsed="settingsStore.isSidebarCollapsed"
+        @toggle-sidebar="settingsStore.toggleSidebar"
       />
     </n-layout-sider>
 

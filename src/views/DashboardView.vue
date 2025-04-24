@@ -27,8 +27,8 @@ const tagStore = useTagStore(); // Make sure it's initialized for stats
 
 // Use computed properties for stats to ensure reactivity
 const totalLibraries = computed(() => libraryStore.libraries.length);
-const totalCategories = computed(() => tagStore.allCategories.length); // Assumes tagStore reflects active library
-const totalTags = computed(() => tagStore.allTags.length); // Assumes tagStore reflects active library
+const totalCategories = computed(() => tagStore.categories.length); // Changed from allCategories
+const totalTags = computed(() => tagStore.tags.length); // Changed from allTags
 const currentLibraryName = computed(() => libraryStore.activeLibrary?.name || '无');
 
 </script>

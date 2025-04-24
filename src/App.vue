@@ -1,61 +1,85 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, watch } from 'vue';
 // Import Naive UI components needed for providers
-import { NConfigProvider, NMessageProvider, NDialogProvider, NNotificationProvider, NLoadingBarProvider } from 'naive-ui';
+import { NConfigProvider, NMessageProvider, NDialogProvider, NGlobalStyle } from 'naive-ui';
 // Import the main layout
 import DefaultLayout from './layouts/DefaultLayout.vue';
 // Import the stores
-import { useTagStore } from './stores/tagStore';
-import { useSettingsStore } from './stores/settingsStore'; // Import settings store
 import { useLibraryStore } from './stores/libraryStore'; // Import library store
+import { useSettingsStore } from './stores/settingsStore'; // Import settings store
 
 // Get the store instances
-const tagStore = useTagStore();
+const libraryStore = useLibraryStore();
 const settingsStore = useSettingsStore(); // Get settings store instance
-const libraryStore = useLibraryStore(); // Get library store instance
+
+// Introduce function to apply font size
+const applyGlobalFontSize = (size: number) => {
+  // Ensure size is within reasonable bounds
+  const safeSize = Math.max(10, Math.min(22, size)); // Example bounds 10px-22px
+  document.documentElement.style.fontSize = `${safeSize}px`;
+  console.log(`Applied global font size: ${safeSize}px (requested: ${size}px)`);
+};
 
 // Load data and settings when the component is mounted
-onMounted(async () => { // Make onMounted async
-  console.log("应用程序启动，开始初始化...");
-  
-  // 1. 首先初始化设置，确保主题等配置正确
-  settingsStore.initializeSettings();
-  
-  // 2. 初始化库存储，这会加载所有标签库并设置活动库
-  const defaultCreated = await libraryStore.initializeLibraries();
-  
-  // 3. 确保tagStore也初始化
-  await tagStore.initializeStore();
-  
-  // 4. 如果是第一次启动（刚刚创建了默认库），加载默认模板
-  if (defaultCreated) {
-    console.log("首次创建默认库，尝试加载默认模板...");
-    try {
-      await tagStore.loadDefaultTemplateIfEmpty();
-    } catch (error) {
-      console.error("加载默认模板失败:", error);
-    }
+onMounted(async () => {
+  console.log("App mounted");
+
+  // Initialize settings first to load theme preference
+  try {
+    console.log("Initializing settings...");
+    settingsStore.initializeSettings();
+    console.log("Settings initialization complete.");
+    // Apply initial font size after settings are loaded
+    applyGlobalFontSize(settingsStore.settings.globalFontSize);
+  } catch (error) { 
+    console.error("Error initializing settings:", error);
   }
-  
-  console.log("应用程序初始化完成");
+
+  // Initialize libraries (this will handle active library and trigger tagStore loading)
+  try {
+    console.log("Initializing libraries...");
+    await libraryStore.initializeLibraries();
+    console.log("Library initialization complete.");
+
+    // Removed tagStore initialization calls, libraryStore.initializeLibraries handles it
+    // console.log("Initializing tag store...");
+    // await tagStore.initializeStore();
+    // console.log("Tag store initialization complete.");
+
+    // Removed default template loading call, should be handled differently (e.g., on empty library)
+    // console.log("Checking if default template needs loading...");
+    // await tagStore.loadDefaultTemplateIfEmpty(); 
+    // console.log("Default template check complete.");
+
+  } catch (error) {
+    console.error("Error during app initialization:", error);
+    // Handle critical initialization errors if needed
+  }
 });
+
+// Introduce watcher for font size changes
+watch(() => settingsStore.settings.globalFontSize, (newSize) => { 
+  if (typeof newSize === 'number') {
+    applyGlobalFontSize(newSize);
+  } else {
+     console.warn('Global font size changed to non-number:', newSize);
+     // Optionally apply default size as fallback
+     // applyGlobalFontSize(defaultSettings.globalFontSize);
+  }
+}, { immediate: false }); // Don't run immediately, onMounted handles initial
 
 // TODO: Implement theme switching based on settings store later
 </script>
 
 <template>
-  <n-config-provider :theme="settingsStore.naiveTheme" :theme-overrides="settingsStore.naiveThemeOverrides">
-    <n-loading-bar-provider>
-      <n-message-provider>
-        <n-notification-provider>
-          <n-dialog-provider>
-            <!-- Render the main application layout -->
+  <NConfigProvider :theme="settingsStore.naiveTheme" :theme-overrides="settingsStore.naiveThemeOverrides">
+    <NGlobalStyle />
+    <NMessageProvider>
+      <NDialogProvider>
             <DefaultLayout />
-          </n-dialog-provider>
-        </n-notification-provider>
-      </n-message-provider>
-    </n-loading-bar-provider>
-  </n-config-provider>
+      </NDialogProvider>
+    </NMessageProvider>
+  </NConfigProvider>
 </template>
 
 <style scoped>

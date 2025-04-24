@@ -27,6 +27,7 @@ import {
     TrashBinOutline as DeleteSelectedIcon
 } from '@vicons/ionicons5';
 import { useLibraryStore } from '../../stores/libraryStore';
+import { useTagStore } from '../../stores/tagStore';
 import type { Library } from '../../types/data';
 
 // Props & Emits for v-model:show
@@ -35,6 +36,7 @@ const emit = defineEmits(['update:show']);
 
 // Store and UI Hooks
 const libraryStore = useLibraryStore();
+const tagStore = useTagStore();
 const message = useMessage();
 const dialog = useDialog();
 
@@ -153,44 +155,105 @@ const handleSaveAdd = async () => {
         return;
     }
     
+    let newLibraryId: string | null = null; // To hold the ID for potential cleanup
     try {
         if (isAddingFromTemplate.value && selectedTemplate.value) {
-            // 从模板创建
-            await libraryStore.createLibraryFromTemplate(name, selectedTemplate.value, true);
-            message.success(`已从模板创建标签库 "${name}"`);
+            // 1. Create empty library first, DO NOT switch
+            newLibraryId = await libraryStore.createLibrary({ name }, false); // Use createLibrary, get ID
+            if (!newLibraryId) { // Check if ID was returned
+                 throw new Error("创建新库记录失败，未返回 ID");
+            }
+            // 2. Fetch template data (assuming libraryStore provides this)
+            // TODO: Implement or verify libraryStore.getTemplateData(path)
+            const templateData = await libraryStore.getTemplateData(selectedTemplate.value);
+            if (!templateData) {
+                 throw new Error(`无法加载模板文件: ${selectedTemplate.value}`);
+            }
+
+            // 3. Import data into the new library (Ensure ID is non-null)
+            if (newLibraryId) { // Add null check for TS
+                 await tagStore.importData(templateData, newLibraryId);
+            } else {
+                 // This case should ideally not happen if createLibrary succeeded
+                 throw new Error("无法导入数据：新库 ID 无效");
+            }
+            message.success(`已从模板创建标签库 \"${name}\"`)
+
         } else if (isAddingFromUserLib.value && selectedUserLib.value) {
-            // 从用户库创建
-            await libraryStore.createLibraryFromUserLib(name, selectedUserLib.value);
-            message.success(`已从用户库创建标签库 "${name}"`);
+            // Similar logic for user libraries
+            // 1. Create empty library, DO NOT switch
+            newLibraryId = await libraryStore.createLibrary({ name }, false); // Use createLibrary, get ID
+            if (!newLibraryId) { // Check if ID was returned
+                 throw new Error("创建新库记录失败，未返回 ID");
+            }
+            // 2. Fetch user library data (assuming similar method)
+             // TODO: Implement or verify libraryStore.getUserLibraryData(path)
+            const userLibData = await libraryStore.getUserLibraryData(selectedUserLib.value); // Hypothetical function
+            if (!userLibData) {
+                 throw new Error(`无法加载用户库文件: ${selectedUserLib.value}`);
+            }
+
+            // 3. Import data (Ensure ID is non-null)
+            if (newLibraryId) { // Add null check for TS
+                 await tagStore.importData(userLibData, newLibraryId);
+            } else {
+                throw new Error("无法导入数据：新库 ID 无效");
+            }
+            message.success(`已从用户库创建标签库 \"${name}\"`);
+
         } else {
-            // 创建空库
-            await libraryStore.createLibrary({ name }, true);
-            message.success(`标签库 "${name}" 创建成功`);
+            // Create empty library (This call likely switches automatically if second param is true or default)
+             await libraryStore.createLibrary({ name }, true); 
+            message.success(`标签库 \"${name}\" 创建成功`);
         }
         resetAddState();
+        // Optionally switch to the newly created library
+        // ... (optional switch logic) ...
+
     } catch (error: any) {
         message.error(`创建失败: ${error.message}`);
+        // Clean up partially created library if import fails
+        if (newLibraryId && (isAddingFromTemplate.value || isAddingFromUserLib.value)) {
+            console.warn(`Import failed for library ${newLibraryId}, attempting cleanup...`);
+            try {
+                await libraryStore.deleteLibrary(newLibraryId);
+                console.log(`Cleaned up partially created library ${newLibraryId}.`);
+            } catch (cleanupError: any) {
+                console.error(`Failed to cleanup library ${newLibraryId}:`, cleanupError);
+                message.error(`创建失败且无法自动清理部分创建的库 (${newLibraryId})`);
+            }
+        }
     }
 };
 
-// 导出当前库到用户库文件
-const handleExportToUserLib = async (library: Library) => {
+// 导出当前库到用户库文件 (Temporarily comment out implementation)
+const handleExportToUserLib = async (/* library: Library */) => {
+    message.info('导出到用户库功能正在开发中...'); // Placeholder message
+    /*
     try {
         // 切换到要导出的库
         if (library.id !== libraryStore.activeLibraryId) {
             await libraryStore.switchLibrary(library.id);
         }
         
-        // 导出库
-        const success = await libraryStore.exportLibraryToUserLib();
-        if (success) {
-            message.success(`已将 "${library.name}" 导出到用户库文件`);
-        } else {
-            message.error('导出用户库失败');
-        }
+        // 旧的导出逻辑 (已移除)
+        // const success = await libraryStore.exportLibraryToUserLib(); 
+        // TODO: Replace with new export logic:
+        // 1. Call tagStore.exportLibraryData()
+        // 2. Get TagStoreTemplate object
+        // 3. Convert to JSON string
+        // 4. Save the JSON string to a file (e.g., in public/user_libraries/)
+        //    - Need a way to trigger file save/download or use backend if needed
+
+        // if (success) { // Update based on new logic
+        //     message.success(`已将 \"${library.name}\" 导出到用户库文件`);
+        // } else {
+        //     message.error('导出用户库失败');
+        // }
     } catch (error: any) {
         message.error(`导出失败: ${error.message}`);
     }
+    */
 };
 
 // Rename Library
@@ -336,7 +399,7 @@ const handleLibrarySelect = (libraryId: string, checked: boolean) => {
 const handleRefreshUserLibs = async () => {
     try {
         console.log("手动刷新用户库列表");
-        await libraryStore.loadUserLibraries(true); // 使用强制刷新模式
+        await libraryStore.loadUserLibraries(); 
         message.success('用户库列表已刷新');
     } catch (error: any) {
         message.error(`刷新失败: ${error.message}`);
@@ -535,7 +598,7 @@ watch(() => props.show, (newValue) => {
                                     </template>
                                     <!-- Display Actions -->
                                     <template v-else>
-                                        <n-button text size="small" @click="() => handleExportToUserLib(library)" 
+                                        <n-button text size="small" @click="() => handleExportToUserLib(/* library: Library */)" 
                                                 :disabled="isAdding || editingLibraryId !== null || libraryStore.isLoading" 
                                                 title="导出到用户库">
                                             <template #icon><n-icon :component="ExportIcon" /></template>

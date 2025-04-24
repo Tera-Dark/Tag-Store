@@ -1,109 +1,108 @@
 <script setup lang="ts">
-import { ref, computed, defineProps, defineEmits, watch } from 'vue';
-import { NModal, NSelect, NButton, NSpin, useMessage } from 'naive-ui';
+import { ref, computed, watch } from 'vue';
+import { NModal, NCard, NSelect, NButton, NSpace, useMessage } from 'naive-ui';
 import type { SelectOption } from 'naive-ui';
 import { useTagStore } from '../../stores/tagStore';
 import type { Category } from '../../types/data';
 
 // --- Props ---
-interface Props {
+const props = defineProps<{ 
   show: boolean;
-  tagCount: number; // Number of tags being moved, for display
-  // Optional: Could pass current category ID to exclude it from options
-  // currentCategoryId?: string | null; 
-}
-const props = defineProps<Props>();
+  tagIds: string[]; // IDs of tags to move
+}>();
 
 // --- Emits ---
-const emit = defineEmits<{
-  (e: 'update:show', value: boolean): void;
-  (e: 'submit', targetCategoryId: string): void;
-}>();
+const emit = defineEmits(['update:show', 'close']);
 
 // --- Store & State ---
 const tagStore = useTagStore();
-const selectedCategoryId = ref<string | null>(null);
-const isProcessing = ref(false); // Although move might be quick, good practice
 const message = useMessage();
+
+const targetCategoryId = ref<string | null>(null);
+const isProcessing = ref(false);
 
 // --- Computed ---
 // Prepare categories for the select dropdown
-// Exclude the current category if needed (logic depends on requirements)
-const categoryOptions = computed<SelectOption[]>(() =>
-  tagStore.allCategories
-    // Optional filter: .filter(cat => cat.id !== props.currentCategoryId) 
+const categoryOptions = computed<SelectOption[]>(() => {
+  return tagStore.categories 
     .map((cat: Category) => ({
       label: cat.name,
       value: cat.id,
     }))
-);
+    .sort((a: SelectOption, b: SelectOption) => (a.label as string).localeCompare(b.label as string));
+});
 
 // --- Methods ---
-const handleClose = () => {
-  if (isProcessing.value) return;
-  emit('update:show', false);
-};
-
-const handleSubmit = () => {
-  if (!selectedCategoryId.value) {
-      message.warning('请选择目标分类');
-      return;
+const handleMove = async () => {
+  if (!targetCategoryId.value) {
+    message.warning('请选择目标分类');
+    return;
   }
-  // No async processing needed here, just emit the event
-  emit('submit', selectedCategoryId.value);
-  // Optionally close dialog after emitting
-  // handleClose(); 
+  if (props.tagIds.length === 0) {
+    message.warning('没有选中任何标签');
+    closeModal();
+    return;
+  }
+
+  isProcessing.value = true;
+  try {
+    await tagStore.batchMoveTags(props.tagIds, targetCategoryId.value);
+    message.success(`成功移动 ${props.tagIds.length} 个标签`);
+    closeModal();
+  } catch (error: any) { 
+    console.error("Error moving tags:", error);
+    message.error(`移动标签失败: ${error.message || '未知错误'}`);
+  } finally {
+    isProcessing.value = false;
+  }
 };
 
-// Reset selection when dialog opens
-watch(() => props.show, (isVisible) => {
-  if (isVisible) {
-    selectedCategoryId.value = null; // Reset selection
-    isProcessing.value = false;
+const closeModal = () => {
+  emit('update:show', false);
+  emit('close');
+  targetCategoryId.value = null; // Reset selection on close
+};
+
+// Watch for the dialog becoming visible to potentially focus the select
+watch(() => props.show, (newValue) => {
+  if (newValue) {
+    // Reset selection when dialog opens
+    targetCategoryId.value = null;
   }
 });
 
 </script>
 
 <template>
-  <n-modal
+  <NModal
     :show="props.show"
+    @update:show="closeModal"
     preset="card"
+    style="width: 400px"
     title="批量移动标签"
-    :bordered="false"
-    size="small"
-    style="max-width: 400px"
-    :mask-closable="!isProcessing"
-    :close-on-esc="!isProcessing"
-    @update:show="handleClose"
+    :mask-closable="false"
+    :closable="!isProcessing"
   >
-    <n-spin :show="isProcessing">
-       <n-text>
-           选择要将选中的 {{ props.tagCount }} 个标签移动到的目标分类：
-       </n-text>
-       <n-select
-            v-model:value="selectedCategoryId"
-            placeholder="选择目标分类"
-            :options="categoryOptions"
-            filterable
-            clearable 
-            style="margin-top: 16px;"
-       />
-    </n-spin>
-    <template #footer>
-      <n-space justify="end">
-        <n-button @click="handleClose" :disabled="isProcessing">取消</n-button>
-        <n-button 
-            type="primary" 
-            @click="handleSubmit" 
-            :loading="isProcessing" 
-            :disabled="isProcessing || !selectedCategoryId"
-        >
-          确认移动
-        </n-button>
-      </n-space>
-    </template>
-  </n-modal>
+    <NCard :bordered="false" size="huge" role="dialog" aria-modal="true">
+      <p>选择要将 {{ props.tagIds.length }} 个标签移动到的目标分类：</p>
+      <NSelect
+        v-model:value="targetCategoryId"
+        :options="categoryOptions"
+        placeholder="选择目标分类"
+        filterable
+        clearable
+        :disabled="isProcessing"
+      />
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="closeModal" :disabled="isProcessing">取消</NButton>
+          <NButton type="primary" @click="handleMove" :loading="isProcessing" :disabled="!targetCategoryId">
+            确认移动
+          </NButton>
+        </NSpace>
+      </template>
+    </NCard>
+  </NModal>
 </template>
 
 <style scoped>

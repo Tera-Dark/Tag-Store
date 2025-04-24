@@ -2,8 +2,6 @@
 import { ref, computed, watch, onMounted, h } from 'vue';
 import { 
     NPageHeader, 
-    NTabs, 
-    NTabPane, 
     NInput, 
     NButton, 
     NIcon, 
@@ -16,46 +14,75 @@ import {
     NLayoutContent,
     NMenu,
     NScrollbar,
-    NEmpty
+    NEmpty,
+    NDivider,
+    NCard,
 } from 'naive-ui';
-import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, StarOutline as StarIconOutline, Star as StarIconFilled, AddCircleOutline as AddAllIcon, PricetagsOutline as CategoryIcon } from '@vicons/ionicons5';
+import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, StarOutline as StarIconOutline, Star as StarIconFilled, AddCircleOutline as AddIcon, PricetagsOutline as CategoryIcon, FolderOpenOutline as GroupIcon, RemoveCircleOutline as RemoveIcon } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
-import type { Tag } from '../../types/data';
+import { useSettingsStore } from '../../stores/settingsStore';
+import type { Tag, Group, Category } from '../../types/data';
 import { useRouter } from 'vue-router';
 
 const tagStore = useTagStore();
 const router = useRouter();
 const message = useMessage();
+const settingsStore = useSettingsStore();
 
 // --- Constants ---
 const FAVORITES_KEY = '__FAVORITES__';
 const FAVORITES_STORAGE_KEY = 'tagShoppingCartFavorites';
-const NO_SUBTITLE_KEY = '(无副标题)';
 
 // --- State ---
 const selectedTags = ref<Tag[]>([]);
 const selectedCategoryId = ref<string | undefined>(undefined);
-const selectedSubtitle = ref<string | undefined>(undefined);
 const editablePromptText = ref<string>('');
 const favoriteTagIds = ref<Set<string>>(new Set());
 const tagSearchTerm = ref<string>('');
 
-// --- Main Category Definition (Placeholder - Needs actual IDs) ---
-// Remove this section entirely
-// interface MainCategoryGroup { ... }
-// const mainCategoryGroups: MainCategoryGroup[] = [ ... ];
-
 // --- Computed Properties ---
+
+// Computed style for action bar
+const actionBarStyle = computed(() => ({
+  left: settingsStore.isSidebarCollapsed ? '64px' : '240px' 
+}));
 
 // Options for the sidebar menu, including Favorites
 const categoryMenuOptions = computed(() => {
-    const favOption = { label: '收藏夹', key: FAVORITES_KEY, icon: () => h(NIcon, null, { default: () => h(StarIconFilled) }) };
-    const categoryOptions = tagStore.categories.map(cat => ({
-        label: cat.name,
-        key: cat.id,
-        icon: () => h(NIcon, null, { default: () => h(CategoryIcon) })
+    // Find groups and their categories from the store
+    const groupMap = new Map<string, { group: Group; categories: Category[] }>();
+    tagStore.groups.forEach(g => groupMap.set(g.id, { group: g, categories: [] }));
+    tagStore.categories.forEach(c => {
+        const groupData = groupMap.get(c.groupId);
+        if (groupData) {
+            groupData.categories.push(c);
+        } else {
+            console.warn(`Category ${c.name} belongs to unknown group ${c.groupId}`);
+        }
+    });
+
+    // Sort categories within groups
+    groupMap.forEach(gData => gData.categories.sort((a, b) => a.name.localeCompare(b.name)));
+
+    // Sort groups
+    const sortedGroups = Array.from(groupMap.values())
+        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || a.group.name.localeCompare(b.group.name));
+
+    // Build menu options with groups as expandable items
+    const menuItems: any[] = sortedGroups.map(gData => ({
+        label: gData.group.name,
+        key: `group-${gData.group.id}`, // Keep group key distinct
+        icon: () => h(NIcon, null, { default: () => h(GroupIcon) }), // Add group icon
+        children: gData.categories.map(cat => ({
+            label: cat.name,
+            key: cat.id, 
+            icon: () => h(NIcon, null, { default: () => h(CategoryIcon) })
+        }))
     }));
-    return [favOption, ...categoryOptions];
+
+    const favOption = { label: '收藏夹', key: FAVORITES_KEY, icon: () => h(NIcon, null, { default: () => h(StarIconFilled) }) };
+
+    return [favOption, ...menuItems];
 });
 
 // Get favorited tags from the main store
@@ -65,34 +92,7 @@ const favoritedTags = computed((): Tag[] => {
     return tagStore.tags.filter(tag => favoriteTagIds.value.has(tag.id));
 });
 
-// Get tags for the currently selected main category (excluding favorites view)
-const currentTagsInSelectedCategory = computed((): Tag[] => {
-    if (!selectedCategoryId.value || selectedCategoryId.value === FAVORITES_KEY) return [];
-    return tagStore.tags.filter(tag => tag.categoryId === selectedCategoryId.value);
-});
-
-// Group tags by subtitle (only for regular categories)
-const currentTagsGroupedBySubtitle = computed((): Map<string, Tag[]> => {
-    const groups = new Map<string, Tag[]>();
-    for (const tag of currentTagsInSelectedCategory.value) {
-        const subtitle = tag.subtitles && tag.subtitles.length > 0 && tag.subtitles[0]?.trim()
-                         ? tag.subtitles[0].trim()
-                         : NO_SUBTITLE_KEY;
-        if (!groups.has(subtitle)) {
-            groups.set(subtitle, []);
-        }
-        groups.get(subtitle)?.push(tag);
-    }
-    return groups;
-});
-
-// Subtitle groups (only for regular categories)
-const currentSubtitleGroups = computed((): string[] => {
-    if (selectedCategoryId.value === FAVORITES_KEY) return [];
-    return Array.from(currentTagsGroupedBySubtitle.value.keys());
-});
-
-// Tags to show (handles both favorites and regular categories, AND global search)
+// Tags to show (Simplified: handles search, favorites, or selected category)
 const currentTagsToShow = computed((): Tag[] => {
     const searchTerm = tagSearchTerm.value.toLowerCase().trim();
 
@@ -101,24 +101,87 @@ const currentTagsToShow = computed((): Tag[] => {
         return tagStore.tags.filter(tag => 
             tag.name.toLowerCase().includes(searchTerm) || 
             (tag.keyword && tag.keyword.toLowerCase().includes(searchTerm))
-        );
+        ).sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // --- Category/Subtitle/Favorite Logic (Only if search term is empty) ---
-    let tags: Tag[] = [];
+    // --- Favorite/Category Logic (Only if search term is empty) ---
     if (selectedCategoryId.value === FAVORITES_KEY) {
-        tags = favoritedTags.value; // Show favorited tags
+        return favoritedTags.value.sort((a, b) => a.name.localeCompare(b.name)); // Sort favorites
     }
-    else if (selectedSubtitle.value) { // If regular category and subtitle selected
-        tags = currentTagsGroupedBySubtitle.value.get(selectedSubtitle.value) || [];
-    }
-    // If no subtitle selected or other cases, tags remains empty or as assigned above
     
-    return tags; // Return category/favorite tags if search is inactive
+    if (selectedCategoryId.value && !selectedCategoryId.value.startsWith('group-')) {
+         // Valid category selected
+         return tagStore.tags.filter(tag => tag.categoryId === selectedCategoryId.value)
+                             .sort((a, b) => a.name.localeCompare(b.name)); // Sort category tags
+    }
+
+    // Otherwise (no selection, group selected, etc.), show nothing
+    return []; 
 });
 
+// --- New Computed Property for Grouped Display ---
+const groupedSelectedTagsForDisplay = computed(() => {
+    const groupMap = new Map<string, { group: Group; categories: Map<string, { category: Category; tags: Tag[] }> }>();
+
+    // Create maps for faster lookups
+    const categoryLookup = new Map(tagStore.categories.map(cat => [cat.id, cat]));
+    const groupLookup = new Map(tagStore.groups.map(grp => [grp.id, grp]));
+
+    for (const tag of selectedTags.value) {
+        const category = categoryLookup.get(tag.categoryId);
+        if (!category) {
+            console.warn(`Category not found for tag: ${tag.name} (categoryId: ${tag.categoryId})`);
+            continue;
+        }
+
+        const group = groupLookup.get(category.groupId);
+        if (!group) {
+            console.warn(`Group not found for category: ${category.name} (groupId: ${category.groupId})`);
+            continue;
+        }
+
+        if (!groupMap.has(group.id)) {
+            groupMap.set(group.id, { group: group, categories: new Map() });
+        }
+        const groupData = groupMap.get(group.id)!; 
+
+        if (!groupData.categories.has(category.id)) {
+            groupData.categories.set(category.id, { category: category, tags: [] });
+        }
+        const categoryData = groupData.categories.get(category.id)!; 
+
+        categoryData.tags.push(tag);
+    }
+
+    // Sort tags within categories and categories within groups
+    groupMap.forEach(groupData => {
+        groupData.categories.forEach(categoryData => {
+            categoryData.tags.sort((a, b) => a.name.localeCompare(b.name)); 
+        });
+        const sortedCategoriesArray = Array.from(groupData.categories.values())
+            .sort((a, b) => a.category.name.localeCompare(b.category.name));
+        // Store sorted categories as an array for easier template iteration
+        groupData.categories = new Map(sortedCategoriesArray.map(catData => [catData.category.id, catData])); 
+    });
+
+    // Sort groups 
+    const sortedGroups = Array.from(groupMap.values())
+        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || a.group.name.localeCompare(b.group.name));
+
+    // Add sorted categories array to each group object for template
+    sortedGroups.forEach(groupData => {
+         (groupData as any).sortedCategories = Array.from(groupData.categories.values())
+            .sort((a, b) => a.category.name.localeCompare(b.category.name));
+    });
+
+    return sortedGroups; 
+});
+
+// --- Update selectedTagsString for comma-separated keywords/names only ---
 const selectedTagsString = computed(() => {
-    return selectedTags.value.map(tag => tag.keyword || tag.name).join(', ');
+    return selectedTags.value
+        .map(tag => tag.keyword || tag.name) // Get keyword or name
+        .join(', '); // Join with comma and space
 });
 
 // --- Methods ---
@@ -159,27 +222,6 @@ const toggleFavorite = (tagId: string) => {
     saveFavorites(); // Save after modification
 };
 
-// Toggle tag selection
-const toggleTagSelection = (tag: Tag) => {
-    const index = selectedTags.value.findIndex(t => t.id === tag.id);
-    if (index !== -1) {
-        // Tag exists, remove it
-        selectedTags.value.splice(index, 1);
-    } else {
-        // Tag doesn't exist, add it
-        selectedTags.value.push(tag);
-    }
-};
-
-// removeTag method remains the same for direct removal from NTag close button
-const removeTag = (tagToRemove: Tag) => {
-    const index = selectedTags.value.findIndex(tag => tag.id === tagToRemove.id);
-    if (index !== -1) {
-        // Optimization: Use splice for targeted removal
-        selectedTags.value.splice(index, 1);
-    }
-};
-
 const copySelectedTags = () => {
     if (!selectedTagsString.value) {
         message.warning('购物车是空的！');
@@ -191,8 +233,12 @@ const copySelectedTags = () => {
 };
 
 const clearSelectedTags = () => {
+    if (selectedTags.value.length === 0) {
+        message.warning('购物车已经是空的！');
+        return;
+    }
     selectedTags.value = [];
-    message.info('购物车已清空');
+    message.success('购物车已清空');
 };
 
 const handleBack = () => {
@@ -201,29 +247,22 @@ const handleBack = () => {
 
 // Handle main category/favorites selection from sidebar menu
 const handleCategorySelect = (key: string) => {
-    selectedCategoryId.value = key;
-    // Reset subtitle only if it's not the favorites view
-    if (key !== FAVORITES_KEY) {
-        selectedSubtitle.value = undefined; 
+    // Only update selectedCategoryId if it's NOT a group key
+    if (!key.startsWith('group-')) {
+        selectedCategoryId.value = key;
     }
-    // Auto-selection of first subtitle is handled by the watcher
+    // If it IS a group key, do nothing here, let n-menu handle expand/collapse
 };
-
-// Watch for subtitle groups changing (due to category change) to select the first one
-watch(currentSubtitleGroups, (newGroups) => {
-    if (newGroups && newGroups.length > 0 && selectedSubtitle.value === undefined) {
-        selectedSubtitle.value = newGroups[0];
-    }
-    // Handle case where category changes and new category has NO subtitle groups
-    else if ((!newGroups || newGroups.length === 0) && selectedCategoryId.value) {
-         selectedSubtitle.value = undefined;
-    }
-}, { immediate: true });
 
 // Select first category on initial load if none selected
 watch(selectedCategoryId, (newVal, _oldVal) => {
     if (newVal === undefined && categoryMenuOptions.value.length > 0) {
-        selectedCategoryId.value = categoryMenuOptions.value[0].key;
+        const firstCategoryOption = categoryMenuOptions.value.flatMap(group => group.children || [group]).find(item => !item.type && item.key !== FAVORITES_KEY);
+        if (firstCategoryOption) {
+            selectedCategoryId.value = firstCategoryOption.key;
+        } else if (categoryMenuOptions.value.length > 0) {
+             selectedCategoryId.value = categoryMenuOptions.value[0].key; 
+        }
     }
 }, { immediate: true });
 
@@ -265,508 +304,458 @@ const addAllVisibleTags = () => {
         selectedTags.value.push(...tagsToAdd);
         message.success(`已添加 ${tagsToAdd.length} 个标签`);
     } else {
-        message.info('当前分组下的所有标签均已在购物车中');
+        message.info('当前视图下的所有标签均已在购物车中');
+    }
+};
+
+// Modified: Add Tag to Cart (used by toggle function)
+const addTagToCart = (tag: Tag) => {
+    const index = selectedTags.value.findIndex(t => t.id === tag.id);
+    if (index === -1) {
+        selectedTags.value.push(tag);
+    }
+};
+
+// Renamed for clarity, same functionality
+const removeTagFromCart = (tagToRemove: Tag) => {
+    const index = selectedTags.value.findIndex(tag => tag.id === tagToRemove.id);
+    if (index !== -1) {
+        selectedTags.value.splice(index, 1);
+    }
+};
+
+// NEW: Toggle tag selection in cart
+const toggleTagInCart = (tag: Tag) => {
+    const index = selectedTags.value.findIndex(t => t.id === tag.id);
+    if (index !== -1) {
+        // Already selected, remove it
+        removeTagFromCart(tag);
+    } else {
+        // Not selected, add it
+        addTagToCart(tag);
     }
 };
 
 </script>
 
 <template>
-  <div class="tag-shopping-cart-view">
+  <div class="tag-cart-view" style="padding-bottom: 80px;">
     <n-page-header title="标签购物车" @back="handleBack">
-      <template #subtitle>
-        组合挑选标签，构建你的提示词
-      </template>
+      <template #subtitle>选择、组合并复制标签</template>
+      <!-- Header actions removed, moved to action bar -->
     </n-page-header>
+    <n-divider />
 
     <n-layout has-sider class="main-layout">
-      <!-- Sidebar for Main Categories -->
       <n-layout-sider 
         bordered 
-        collapse-mode="width"
-        :collapsed-width="64"
-        :width="200"
-        show-trigger
-        content-style="padding: 10px 5px;"
-        class="main-sider"
+        collapse-mode="width" 
+        :collapsed-width="64" 
+        :width="240" 
+        show-trigger 
+        class="sidebar"
       >
-        <n-scrollbar style="max-height: calc(100vh - 150px)">
-          <n-menu
-            :options="categoryMenuOptions"
-            :value="selectedCategoryId"
-            @update:value="handleCategorySelect"
-          />
-        </n-scrollbar>
+        <n-menu
+          v-model:value="selectedCategoryId"
+          :options="categoryMenuOptions"
+          :indent="18"
+        />
       </n-layout-sider>
 
-      <!-- Main Content Area -->
-      <n-layout-content class="main-content">
-        
-        <!-- Editable Text Area with Copy Button -->
-        <div class="editable-prompt-section">
-          <n-input 
-            type="textarea"
-            v-model:value="editablePromptText"
-            placeholder="在此编辑或组合提示词... (此区域内容会随下方标签选择自动更新)"
-            :autosize="{ minRows: 3, maxRows: 6 }"
-          />
-          <n-button 
-            class="copy-prompt-button" 
-            @click="copyEditablePrompt" 
-            :disabled="!editablePromptText" 
-            secondary 
-            circle 
-            size="small" 
-          >
-            <template #icon><n-icon :component="CopyIcon" /></template>
-          </n-button>
-        </div>
-
-        <!-- Selected Tags Area -->
-        <div class="selected-tags-section">
-          <n-space justify="space-between" align="center" class="selected-tags-header">
-              <span class="section-title">当前选择</span>
-               <n-space>
-                <n-button text size="small" @click="copySelectedTags" :disabled="selectedTags.length === 0">
-                  <template #icon><n-icon :component="CopyIcon" /></template>
-                  复制
-                </n-button>
-                <n-button text type="error" size="small" @click="clearSelectedTags" :disabled="selectedTags.length === 0">
-                  <template #icon><n-icon :component="ClearIcon" /></template>
-                  清空
-                </n-button>
-              </n-space>
-          </n-space>
-          <div class="selected-tags-container">
-               <n-scrollbar style="max-height: 100px;" x-scrollable>
-                   <n-flex :size="[6, 6]" style="padding: 8px 5px;">
-                        <n-tag 
-                            v-for="tag in selectedTags" 
-                            :key="tag.id" 
-                            closable 
-                            @close="removeTag(tag)" 
-                            type="info" 
-                            size="small"
-                            class="selected-tag-item"
-                        >
-                            {{ tag.name }}
-                            <span v-if="tag.keyword" class="selected-tag-keyword"> [{{ tag.keyword }}]</span>
-                        </n-tag>
-                        <span v-if="selectedTags.length === 0" class="placeholder-text">
-                            点击下方标签添加到此处...
-                        </span>
-                   </n-flex>
-                </n-scrollbar>
-            </div>
-        </div>
-
-        <!-- Subtitle Navigation and Tag Display Area -->
-        <div class="selection-area">
-            <!-- Subtitle Tabs/Navigation -->
-            <div 
-                class="subtitle-navigation-wrapper" 
-                v-if="currentSubtitleGroups.length > 0 && selectedCategoryId !== FAVORITES_KEY" 
-            >
-                 <n-tabs 
-                    type="line"
-                    size="small" 
-                    v-model:value="selectedSubtitle"
-                    class="sub-tabs"
-                    justify-content="start" 
+      <n-layout-content class="content-area">
+        <div class="content-grid">
+          <!-- Left Panel: Available Tags (Updated Click Handler & Class) -->
+          <n-card title="可用标签" size="small" class="available-tags-panel">
+            <template #header-extra>
+              <n-input 
+                v-model:value="tagSearchTerm" 
+                placeholder="搜索标签名或关键词..." 
+                clearable 
+                size="small"
+              />
+            </template>
+            <n-scrollbar style="max-height: calc(100vh - 220px);">
+              <n-flex v-if="currentTagsToShow.length > 0" class="tag-list" :size="[8, 12]">
+                <div 
+                  v-for="tag in currentTagsToShow" 
+                  :key="tag.id"
+                  class="tag-item-card" 
+                  @click="toggleTagInCart(tag)" 
+                  :class="{'tag-item-selected': selectedTags.some(selected => selected.id === tag.id)}"
                 >
-                    <n-tab-pane
-                        v-for="subtitle in currentSubtitleGroups" 
-                        :key="subtitle"
-                        :name="subtitle" 
-                        :tab="subtitle"
-                    />
-                </n-tabs>
-                <!-- Add All Button aligned with tabs -->
-                <n-button 
-                    v-if="selectedSubtitle && !tagSearchTerm"
-                    @click="addAllVisibleTags"
-                    size="small"
-                    quaternary 
-                    class="add-all-button"
-                    title="添加当前副标题下的所有标签"
-                >
-                    <template #icon><n-icon :component="AddAllIcon" /></template>
-                    添加全部
-                </n-button>
-            </div>
-             <n-empty 
-                v-else-if="selectedCategoryId && currentTagsInSelectedCategory.length > 0 && !tagSearchTerm"
-                description="此分类下的标签均无副标题分组"
-                size="small"
-                class="empty-state"
-             />
-             <n-empty 
-                v-else-if="selectedCategoryId && !tagSearchTerm"
-                description="请先选择主分类或此分类下无标签"
-                size="small"
-                class="empty-state"
-             />
-               
+                  <div class="tag-card-header">
+                    <n-button text circle size="tiny" @click.stop="toggleFavorite(tag.id)" class="favorite-button" :title="favoriteTagIds.has(tag.id) ? '取消收藏' : '收藏'">
+                      <n-icon :component="favoriteTagIds.has(tag.id) ? StarIconFilled : StarIconOutline" />
+                    </n-button>
+                    <n-button text circle size="tiny" class="add-button" title="添加/移除购物车">
+                      <n-icon :component="AddIcon" />
+                    </n-button>
+                  </div>
+                  <div class="tag-card-body">
+                    <div class="tag-name">{{ tag.name }}</div>
+                    <div class="tag-keyword">{{ tag.keyword || '&nbsp;' }}</div>
+                  </div>
+                </div>
+              </n-flex>
+              <n-empty v-else description="选择分类或搜索查看标签" style="margin-top: 40px;" />
+            </n-scrollbar>
+          </n-card>
 
-            <!-- Tag Search Input -->
-            <n-input 
-                v-model:value="tagSearchTerm"
-                placeholder="搜索整个标签库..."
-                size="small"
-                clearable
-                class="tag-search-input"
-                style="margin-bottom: 10px; flex-shrink: 0;"
-            >
-                 <template #prefix>
-                    <n-icon :component="CategoryIcon" />
-                </template>
-            </n-input>
+          <!-- Right Panel: Selected Tags (Cart - Updated Item Layout) -->
+          <n-card title="购物车" size="small" class="cart-panel">
+             <template #header-extra>
+                 <n-tag v-if="selectedTags.length > 0" type="success" size="small">
+                     总计: {{ selectedTags.length }}
+                 </n-tag>
+             </template>
+            <n-scrollbar style="max-height: calc(100vh - 260px);">
+              <div v-if="selectedTags.length > 0" class="cart-content">
+                 <!-- Grouped Display -->
+                 <n-space vertical>
+                    <n-card 
+                        v-for="groupData in groupedSelectedTagsForDisplay" 
+                        :key="groupData.group.id" 
+                        :title="groupData.group.name" 
+                        size="small" 
+                        hoverable
+                        class="cart-group-card"
+                     >
+                       <template #header-extra>
+                           <n-icon :component="GroupIcon" />
+                       </template>
+                        <n-space vertical size="small">
+                            <div v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id" class="cart-category-section">
+                                <div class="cart-category-header">{{ categoryData.category.name }}</div>
+                                <div class="cart-items-container">
+                                    <!-- Updated cart item structure -->
+                                    <div 
+                                        v-for="tag in categoryData.tags" 
+                                        :key="tag.id" 
+                                        class="cart-item-card"
+                                    >
+                                        <div class="cart-item-content">
+                                            <div class="cart-item-name">{{ tag.name }}</div>
+                                            <div class="cart-item-keyword">{{ tag.keyword || '' }}</div>
+                                        </div>
+                                        <n-button 
+                                            text 
+                                            circle 
+                                            size="tiny" 
+                                            @click="removeTagFromCart(tag)" 
+                                            class="cart-item-remove-button"
+                                            title="从购物车移除"
+                                        >
+                                            <template #icon><n-icon :component="RemoveIcon" /></template>
+                                        </n-button>
+                                    </div>
+                                </div>
+                            </div>
+                        </n-space>
+                    </n-card>
+                 </n-space>
 
-            <!-- Tag Display -->
-            <div class="tags-area" v-if="(selectedCategoryId === FAVORITES_KEY || selectedSubtitle) || tagSearchTerm">
-                 <n-scrollbar style="max-height: calc(100vh - 280px); padding-right: 10px;">
-                    <n-flex wrap :size="[8, 8]">
-                    <!-- Render differently based on context (Fav vs Category vs Search Results) -->
-                    <!-- NOTE: The v-if/v-else logic inside might need adjustment if we want distinct rendering for search results vs favs vs category -->
-                    <!-- Current logic will render search results using the 'v-else' block's style -->
-                    <template v-if="selectedCategoryId === FAVORITES_KEY && !tagSearchTerm">
-                         <n-button 
-                            v-for="tag in currentTagsToShow" 
-                            :key="tag.id"
-                            size="small"
-                            @click="toggleTagSelection(tag)"
-                            :type="selectedTags.some(t => t.id === tag.id) ? 'primary' : 'default'"
-                            class="tag-button fav-tag-button"
-                            :focusable="false" 
-                        >
-                             <div class="tag-button-content">
-                                <div class="tag-name-section">{{ tag.name }}</div>
-                                <div class="tag-keyword-section">{{ tag.keyword || '&nbsp;' }}</div>
-                            </div>
-                            <!-- Hover Toolbar -->
-                            <div class="tag-hover-toolbar">
-                                <n-button text circle size="tiny" @click.stop="copySingleTag(tag)" title="复制">
-                                    <template #icon><n-icon :component="CopyIcon" /></template>
-                                </n-button>
-                                <n-button text circle size="tiny" @click.stop="toggleFavorite(tag.id)" :title="favoriteTagIds.has(tag.id) ? '取消收藏' : '收藏标签'">
-                                    <template #icon>
-                                        <n-icon :component="favoriteTagIds.has(tag.id) ? StarIconFilled : StarIconOutline" :color="favoriteTagIds.has(tag.id) ? '#ffc107' : undefined" />
-                                    </template>
-                                </n-button>
-                            </div>
-                        </n-button>
-                        <n-empty v-if="favoritedTags.length === 0 && !tagSearchTerm" description="还没有收藏任何标签" class="empty-state-inline" />
-                    </template>
-                    <template v-else> <!-- Regular Category View OR Global Search Results View -->
-                        <n-button 
-                            v-for="tag in currentTagsToShow" 
-                            :key="tag.id"
-                            size="small"
-                            @click="toggleTagSelection(tag)"
-                            :type="selectedTags.some(t => t.id === tag.id) ? 'primary' : 'default'"
-                            class="tag-button"
-                            :focusable="false" 
-                        >
-                            <!-- Add Favorite Indicator -->
-                            <n-icon 
-                                v-if="favoriteTagIds.has(tag.id)" 
-                                :component="StarIconFilled" 
-                                size="12" 
-                                color="#ffc107" 
-                                class="absolute-fav-indicator"
-                                title="已收藏"
-                            />
-                             <div class="tag-button-content">
-                                <div class="tag-name-section">{{ tag.name }}</div>
-                                <div class="tag-keyword-section">{{ tag.keyword || '&nbsp;' }}</div>
-                            </div>
-                            <!-- Hover Toolbar -->
-                            <div class="tag-hover-toolbar">
-                                <n-button text circle size="tiny" @click.stop="copySingleTag(tag)" title="复制">
-                                    <template #icon><n-icon :component="CopyIcon" /></template>
-                                </n-button>
-                                <n-button text circle size="tiny" @click.stop="toggleFavorite(tag.id)" :title="favoriteTagIds.has(tag.id) ? '取消收藏' : '收藏标签'">
-                                    <template #icon>
-                                        <n-icon :component="favoriteTagIds.has(tag.id) ? StarIconFilled : StarIconOutline" :color="favoriteTagIds.has(tag.id) ? '#ffc107' : undefined" />
-                                    </template>
-                                </n-button>
-                            </div>
-                        </n-button>
-                        <span v-if="currentTagsToShow.length === 0 && selectedSubtitle && !tagSearchTerm" class="placeholder-text">
-                            此副标题分组下暂无标签。
-                        </span>
-                        <span v-else-if="currentTagsToShow.length === 0 && tagSearchTerm" class="placeholder-text">
-                            未找到匹配的标签。
-                        </span>
-                    </template>
-                    </n-flex>
-                </n-scrollbar>
-            </div>
-            <n-empty 
-                v-else-if="selectedCategoryId && selectedCategoryId !== FAVORITES_KEY && currentSubtitleGroups.length > 0 && !selectedSubtitle && !tagSearchTerm"
-                description="请选择一个副标题分组"
-                size="small"
-                class="empty-state tags-area"
-             />
-              <!-- Other empty states handled above -->
-
-        </div> 
+                 <n-divider title-placement="left" style="margin-top: 20px;">复制内容预览 (逗号分隔)</n-divider>
+                 <n-input
+                    v-model:value="selectedTagsString"
+                    type="textarea"
+                    readonly
+                    placeholder="购物车为空"
+                    :autosize="{ minRows: 2, maxRows: 5 }"
+                  />
+              </div>
+              <n-empty v-else description="从左侧选择标签添加到购物车" style="margin-top: 40px;"/>
+            </n-scrollbar>
+          </n-card>
+        </div>
       </n-layout-content>
     </n-layout>
 
+    <!-- Fixed Action Bar -->
+    <div class="fixed-action-bar" :style="actionBarStyle">
+         <n-button 
+            type="primary" 
+            @click="copySelectedTags" 
+            :disabled="selectedTags.length === 0"
+            size="large"
+            style="margin-right: 12px;"
+          >
+              <template #icon><n-icon :component="CopyIcon" /></template>
+              复制购物车内容
+          </n-button>
+          <n-popconfirm @positive-click="clearSelectedTags">
+              <template #trigger>
+                  <n-button 
+                    type="error" 
+                    secondary 
+                    :disabled="selectedTags.length === 0"
+                    size="large"
+                   >
+                      <template #icon><n-icon :component="ClearIcon" /></template>
+                      清空购物车
+                  </n-button>
+              </template>
+              确定要清空购物车中的所有标签吗？
+          </n-popconfirm>
+    </div>
   </div>
 </template>
 
+
 <style scoped>
-.tag-shopping-cart-view {
-  /* Remove padding here if main-layout handles it */
-  /* padding: 20px; */ 
-  height: calc(100vh - 60px); /* Adjust based on header/nav height */
+.tag-cart-view {
+  height: calc(100vh - 65px - 50px); /* Adjust based on header/footer heights */
   display: flex;
   flex-direction: column;
 }
 
 .main-layout {
-    flex-grow: 1; 
-    background-color: var(--n-color); 
+  flex-grow: 1;
+  /* overflow: hidden; Prevent double scrollbars */
 }
 
-.main-sider {
-    background-color: var(--n-color); 
+.sidebar {
+  height: 100%;
+}
+:deep(.sidebar .n-layout-sider-scroll-container) {
+     overflow-x: hidden; /* Hide horizontal scrollbar */
 }
 
-.main-content {
-    background-color: var(--body-color); 
-    padding: 10px 15px; /* Adjust padding */
+
+.content-area {
+  padding: 15px;
+  height: 100%;
+  overflow: hidden; /* Prevent layout content from scrolling */
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); /* Responsive columns */
+  gap: 15px;
+  height: 100%; /* Fill content area height */
+}
+
+.available-tags-panel,
+.cart-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* Make panels fill grid cell height */
+  overflow: hidden; /* Prevent panel content overflow */
+}
+
+.available-tags-panel :deep(.n-card__content),
+.cart-panel :deep(.n-card__content) {
+  flex-grow: 1;
+  overflow: hidden; /* Prevent card content overflow */
+  padding: 5px 10px !important; /* Adjust padding */
+}
+
+.available-tags-panel .n-scrollbar,
+.cart-panel .n-scrollbar {
+  flex-grow: 1;
+}
+
+/* --- Available Tags List - Updated Item Card Style --- */
+.tag-list {
+  padding: 5px;
+  display: flex; /* Ensure flex wrap works */
+  flex-wrap: wrap;
+}
+
+.tag-item-card {
+    border: 1px solid var(--n-border-color);
+    border-radius: 4px;
+    margin: 4px;
+    padding: 0;
     display: flex;
     flex-direction: column;
+    background-color: var(--n-color);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    position: relative;
+    overflow: hidden;
+    min-width: 100px; /* Adjust min width */
+    cursor: pointer; /* Indicate the whole card is clickable */
 }
 
-.selected-tags-section {
-    margin-bottom: 10px; /* Reduced margin */
-    flex-shrink: 0; 
+.tag-item-card:hover {
+    border-color: var(--n-primary-color-hover);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
-.selected-tags-header {
-    margin-bottom: 8px;
+.tag-card-header {
+    display: flex;
+    justify-content: flex-end; /* Buttons to the right */
+    padding: 2px 4px;
+    background-color: var(--n-action-color); /* Subtle header background */
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    opacity: 0; /* Hide initially */
+    transition: opacity 0.2s ease;
 }
 
-.section-title {
+.tag-item-card:hover .tag-card-header {
+    opacity: 1;
+}
+
+.tag-card-header .favorite-button {
+    position: absolute; /* Position fav button independently */
+    left: 4px;
+    top: 2px;
+}
+
+.tag-card-header .add-button {
+   /* Styling for add button if needed, but click is on card now */
+   pointer-events: none; /* Prevent clicks directly on this button icon */
+}
+
+.tag-card-body {
+    padding: 22px 8px 6px 8px; /* Top padding to clear header */
+    text-align: center;
+}
+
+.tag-card-body .tag-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--n-text-color-1);
+    margin-bottom: 2px;
+    word-break: break-word;
+}
+
+.tag-card-body .tag-keyword {
+    font-size: 11px;
+    color: var(--n-text-color-3);
+    word-break: break-word;
+    min-height: 15px; /* Ensure space even if empty */
+}
+
+
+/* --- Cart Display - Updated Item Layout --- */
+.cart-items-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.cart-item-card {
+    background-color: var(--n-color);
+    border: 1px solid var(--n-divider-color);
+    border-radius: 4px;
+    padding: 6px 28px 6px 10px; /* Adjust padding for remove button */
+    display: flex;
+    align-items: center;
+    position: relative;
+    transition: background-color 0.2s ease;
+    flex-grow: 1; /* Allow items to grow if needed */
+    min-width: 120px; /* Minimum width for better layout */
+}
+
+.cart-item-card:hover {
+    background-color: var(--n-color-hover);
+}
+
+/* NEW: Container for name and keyword */
+.cart-item-content {
+    flex-grow: 1; /* Allow content to take available space */
+    margin-right: 8px; /* Space between content and button area */
+    overflow: hidden; /* Prevent content from overflowing card */
+}
+
+.cart-item-name {
     font-size: 14px;
     font-weight: 500;
     color: var(--n-text-color-1);
-}
-
-.selected-tags-container {
-    border: 1px solid var(--n-border-color);
-    border-radius: 6px; /* Match button radius */
-    background-color: var(--n-color-embedded); /* Use embedded color */
-    min-height: 40px; /* Adjust min height */
-}
-
-.selected-tag-item {
-    /* Optional: Add styles for selected tags if needed */
-    background-color: var(--n-tag-color-info); /* Use info color from theme */
-    /* color: var(--n-text-color-base); */
-}
-
-.placeholder-text {
-    color: var(--n-text-color-disabled);
-    font-size: 13px;
-    padding: 5px;
-}
-
-.sub-tabs {
-    margin-bottom: 10px;
-    flex-shrink: 0;
-    border-bottom: 1px solid var(--n-border-color); /* Add subtle bottom border */
-}
-
-/* Make line tabs less prominent */
-:deep(.sub-tabs .n-tabs-nav--line-type) {
-  margin-bottom: -1px; /* Overlap border */
-}
-:deep(.sub-tabs .n-tabs-nav-scroll-content) {
-    border-bottom: none;
-}
-:deep(.sub-tabs .n-tabs-tab) {
-    font-size: 13px;
-    padding: 8px 0;
-    margin-right: 16px;
-}
-
-.tags-area {
-    margin-top: 0; /* Remove top margin */
-    padding: 0; /* Remove padding, scrollbar handles it */
-    background-color: transparent; /* Area itself is transparent */
-    border-radius: 0;
-    min-height: 100px;
-    flex-grow: 1; /* Allow area to grow */
-    overflow: hidden; /* Needed for scrollbar */
-}
-
-.empty-state {
-    margin-top: 20px;
-    flex-grow: 1; /* Center empty state */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.empty-state.tags-area {
-     background-color: var(--body-color);
-}
-
-/* Keep tag button styles */
-.tag-button {
-    position: relative; /* Needed for hover toolbar */
-    padding: 0 !important; 
-    height: auto; 
-    border: 1px solid #f0f0f0; /* Light grey border as in reference */
-    border-radius: 6px; 
-    overflow: hidden; 
-    background-color: transparent; 
-    vertical-align: top; 
-    max-width: none; /* Let flexbox handle width */
-    transition: border-color 0.3s;
-    box-shadow: none;
-}
-
-.tag-button:hover {
-    border-color: #e0e0e0; /* Slightly darker grey border */
-    background-color: transparent;
-}
-
-.tag-button.n-button--primary-type {
-    border-color: var(--n-success-color, #4caf50); /* Green border when selected */
-    background-color: transparent; /* Keep outer button background transparent */
-}
-
-/* Modify background of inner sections when selected */
-.tag-button.n-button--primary-type .tag-name-section {
-    background-color: var(--n-success-color-pressed, #388e3c); /* Use a darker green for selected name section */
-    color: white; /* Ensure text remains readable */
-}
-
-.tag-button.n-button--primary-type .tag-keyword-section {
-     background-color: #f8f8f8; /* Slightly off-white for selected keyword section */
-     color: var(--n-success-color-pressed, #388e3c); /* Darker green text for keyword */
-}
-
-.tag-button.n-button--primary-type:hover {
-     border-color: var(--n-success-color-hover, #45a049);
-     background-color: transparent; /* Keep outer button background transparent on hover */
-}
-
-/* Restore two-tone content styles */
-.tag-button-content {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-}
-
-.tag-name-section {
-    padding: 5px 8px;
-    background-color: #e6f4ea; /* Light Green */
-    color: var(--n-success-color, darkgreen); /* Dark Green Text */
-    text-align: center;
-    font-size: 13px;
-    font-weight: 500;
-    border-radius: 5px 5px 0 0; /* Match outer radius */
-    position: relative; 
-}
-
-.tag-keyword-section {
-    padding: 4px 8px;
-    background-color: white; 
-    color: var(--n-success-color, darkgreen); /* Dark Green Text */
-    text-align: center;
-    font-size: 11px; 
-    min-height: 20px; 
+    padding-right: 0; /* Remove previous padding */
+    overflow-wrap: break-word; /* Allow long words to wrap */
+    word-break: break-word; /* Ensure wrapping */
     line-height: 1.3;
-    word-break: break-all; 
-    white-space: normal; 
-    border-radius: 0 0 5px 5px; /* Match outer radius */
 }
 
-/* Remove old inline keyword and fav button styles */
-/* .tag-keyword-inline { ... } */
-/* .fav-toggle-button { ... } */
-/* .fav-toggle-button.inner-fav-button { ... } */
-/* .tag-button.n-button--primary-type .inner-fav-button { ... } */
-
-.empty-state-inline {
-    width: 100%;
-    padding: 20px;
+.cart-item-keyword {
+    font-size: 12px;
+    color: var(--n-text-color-3);
+    margin-left: 8px;
+    font-style: italic;
+    flex-shrink: 0; /* Prevent keyword from shrinking too much */
+    overflow-wrap: break-word; 
+    word-break: break-word; 
+    line-height: 1.2;
 }
 
-/* Restore editable prompt section style */
-.editable-prompt-section {
-    margin-bottom: 15px; 
-    flex-shrink: 0;
-    position: relative; /* Add relative positioning */
-}
-
-.copy-prompt-button {
+.cart-item-remove-button {
     position: absolute;
-    top: 8px; /* Adjust as needed */
-    right: 8px; /* Adjust as needed */
-    z-index: 1; /* Ensure button is above textarea */
+    top: 50%;
+    right: 6px; /* Adjust position slightly */
+    transform: translateY(-50%);
+    opacity: 0.6;
+    color: var(--n-error-color);
 }
 
-.tag-hover-toolbar {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    background-color: rgba(255, 255, 255, 0.85); /* Semi-transparent white */
-    border-radius: 4px;
-    padding: 2px 4px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-    display: flex;
-    gap: 4px;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
-    z-index: 10; /* Ensure it's above content */
-}
-
-.tag-button:hover .tag-hover-toolbar {
+.cart-item-card:hover .cart-item-remove-button {
     opacity: 1;
-    visibility: visible;
 }
 
-.tag-hover-toolbar .n-button .n-icon {
-    vertical-align: middle; /* Align icons nicely */
+/* NEW: Style for selected tag cards in the available list */
+.tag-item-card.tag-item-selected {
+    border-color: var(--n-primary-color-pressed);
+    box-shadow: 0 0 0 1px var(--n-primary-color-pressed);
+    background-color: var(--n-item-color-active-hover);
 }
 
-.absolute-fav-indicator {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    z-index: 5; /* Below toolbar, above content */
-    filter: drop-shadow(0 0 1px rgba(0,0,0,0.5)); /* Add subtle shadow */
+/* --- Fixed Action Bar --- */
+.fixed-action-bar {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  height: 64px; 
+  background-color: var(--n-card-color);
+  border-top: 1px solid var(--n-border-color);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 24px;
+  z-index: 10;
+  transition: left 0.3s var(--n-bezier), background-color 0.3s var(--n-bezier), border-color 0.3s var(--n-bezier);
 }
 
-.subtitle-navigation-wrapper {
-    display: flex;
-    align-items: flex-end; /* Align button with bottom of tabs */
-    margin-bottom: 10px;
-    flex-shrink: 0;
-}
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .tag-cart-view {
+     height: calc(100vh - 60px - 50px); /* Adjust if header is smaller */
+     padding-bottom: 70px; /* Ensure space for action bar */
+  }
+  
+  .content-grid {
+     grid-template-columns: 1fr; /* Stack columns on smaller screens */
+  }
+  
+  .available-tags-panel,
+  .cart-panel {
+      height: auto; /* Allow content to determine height */
+      min-height: 250px; /* Ensure some minimum height */
+  }
+   .available-tags-panel .n-scrollbar,
+   .cart-panel .n-scrollbar {
+      max-height: 35vh; /* Limit scroll height on small screens */
+   }
 
-.sub-tabs {
-    margin-bottom: 0; /* Remove margin as wrapper handles it */
-    border-bottom: 1px solid var(--n-border-color); 
-    flex-grow: 1; /* Allow tabs to take available space */
-}
 
-.add-all-button {
-    margin-left: 10px;
-    margin-bottom: 1px; /* Align with tab baseline */
-    flex-shrink: 0;
-}
+  .fixed-action-bar {
+    height: 56px; 
+    padding: 0 16px;
+    left: 0 !important; 
+  }
 
-.tag-search-input {
-  /* Optional: Add specific styles if needed */
+  .fixed-action-bar .n-button {
+     padding-left: 10px;
+     padding-right: 10px;
+  }
+  .fixed-action-bar .n-button--large {
+      height: 40px;
+      font-size: 14px;
+  }
 }
 
 </style> 

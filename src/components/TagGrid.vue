@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox } from 'naive-ui';
+import { NGrid, NGi, NText, NEmpty, useMessage, useDialog, NButton, NSpace, NCheckbox, NFlex, NButtonGroup } from 'naive-ui';
 import { useTagStore } from '../stores/tagStore';
 import TagCard from './TagCard.vue';
 import TagDialog from './dialogs/TagDialog.vue';
@@ -73,13 +73,6 @@ const tagToEdit = ref<Tag | null>(null);
 const initialCategoryId = ref<string | null>(null); // For adding tag to specific category
 
 // --- Dialog Actions (Add/Edit) ---
-const handleOpenAddDialog = () => {
-  tagDialogMode.value = 'add';
-  tagToEdit.value = null;
-  initialCategoryId.value = tagStore.filterCategoryId || null;
-  showTagDialog.value = true;
-};
-
 const handleOpenEditDialog = (tag: Tag) => {
   tagDialogMode.value = 'edit';
   tagToEdit.value = tag;
@@ -157,81 +150,56 @@ const handleBatchMove = () => {
     showBatchMoveDialog.value = true;
 };
 
-const handleBatchMoveSubmit = async (targetCategoryId: string) => {
-    const idsToMove = Array.from(selectedTagIds.value);
-    if (idsToMove.length === 0) return;
-
-    showBatchMoveDialog.value = false;
-    isBatchProcessing.value = true; // Start loading
-    try {
-        await tagStore.batchMoveTags(idsToMove, targetCategoryId);
-        message.success(`已将 ${idsToMove.length} 个标签移动到目标分类`);
-        selectedTagIds.value.clear();
-    } catch (error: any) {
-        message.error(`批量移动失败: ${error.message}`);
-    } finally {
-        isBatchProcessing.value = false; // Stop loading
-    }
-};
-
 </script>
 
 <template>
   <div class="tag-grid-container">
-    <!-- Action area (Keep these controls) -->
-    <div class="controls-section">
-      <n-space justify="space-between" align="center" wrap-item>
-        <!-- Left side controls -->
-        <n-space align="center" :size="12">
-          <div class="select-all-checkbox">
-            <n-checkbox 
-              :checked="isAllSelected" 
-              :indeterminate="isIndeterminate"
-              @update:checked="handleSelectAllChange" 
-            />
-          </div>
-          <n-text v-if="!hasSelection" class="tags-count">
-              {{ filteredTags.length }} 个标签
-          </n-text>
-          <n-text v-else class="tags-count selected-text">
-              已选择 {{ selectedTagIds.size }} 个标签
-          </n-text>
-        </n-space>
-        
-        <!-- Right side controls -->
-        <n-space align="center" :size="8">
-          <!-- First show Batch Actions when there is selection -->
-          <n-button-group v-if="hasSelection" size="small">
-            <n-button type="warning" 
-                @click="handleBatchDelete" 
-                :loading="isBatchProcessing"
-                :disabled="!hasSelection">
-              删除选中
-            </n-button>
-            <n-button type="primary" 
-                @click="handleBatchMove"  
-                :loading="isBatchProcessing"
-                :disabled="!hasSelection">
-              移动选中
-            </n-button>
-          </n-button-group>
-
-          <!-- Otherwise show controls when nothing is selected -->
-          <n-button v-else type="primary" 
-              @click="handleOpenAddDialog" 
-              ghost>
-            添加标签
-          </n-button>
-        </n-space>
+    <!-- Action area - Use NFlex for better responsive controls -->
+    <n-flex class="controls-section" justify="space-between" align="center" :wrap="true">
+      <!-- Left side controls -->
+      <n-space align="center" :size="12" :wrap-item="false" style="flex-shrink: 0;">
+        <div class="select-all-checkbox">
+          <n-checkbox 
+            :checked="isAllSelected" 
+            :indeterminate="isIndeterminate"
+            @update:checked="handleSelectAllChange" 
+          />
+        </div>
+        <n-text v-if="!hasSelection" class="tags-count">
+            {{ filteredTags.length }} 个标签
+        </n-text>
+        <n-text v-else class="tags-count selected-text">
+            已选择 {{ selectedTagIds.size }} 个标签
+        </n-text>
       </n-space>
-    </div>
+      
+      <!-- Right side controls -->
+      <n-space align="center" :size="8" :wrap-item="false" style="flex-shrink: 0; margin-top: 4px;"> <!-- Add margin-top for wrap spacing -->
+        <n-button-group v-if="hasSelection" size="small">
+          <n-button type="warning" 
+              @click="handleBatchDelete" 
+              :loading="isBatchProcessing"
+              :disabled="!hasSelection">
+            删除选中
+          </n-button>
+          <n-button type="primary" 
+              @click="handleBatchMove"  
+              :loading="isBatchProcessing"
+              :disabled="!hasSelection">
+            移动选中
+          </n-button>
+        </n-button-group>
+      </n-space>
+    </n-flex>
 
     <div class="grid-wrapper">
       <!-- Wrap Grid/Empty state in NSpin -->
       <n-spin :show="isLoading">
         <n-empty v-if="!isLoading && filteredTags.length === 0" description="没有找到标签" style="margin-top: 40px;">
           <template #extra>
-            <n-button size="small" @click="handleOpenAddDialog">创建第一个标签</n-button>
+            <n-button size="small" @click="() => { /* TODO: Signal parent or handle context */ }" :disabled="!tagStore.filterCategoryId">
+              在此分类下创建标签
+            </n-button>
           </template>
         </n-empty>
       
@@ -278,8 +246,8 @@ const handleBatchMoveSubmit = async (targetCategoryId: string) => {
     <!-- Batch Move Dialog -->
     <BatchMoveDialog 
         v-model:show="showBatchMoveDialog" 
-        :tag-count="selectedTagIds.size"
-        @submit="handleBatchMoveSubmit"
+      :tag-ids="Array.from(selectedTagIds)" 
+      @close="showBatchMoveDialog = false"
     />
 
   </div>
@@ -294,12 +262,10 @@ const handleBatchMoveSubmit = async (targetCategoryId: string) => {
 }
 
 .controls-section {
-  margin-bottom: 20px;
-  flex-shrink: 0;
-  padding: 8px 12px;
-  background-color: var(--n-card-color);
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--n-border-color);
+  margin-bottom: 16px;
+  /* NFlex handles layout now */
 }
 
 .grid-wrapper {
@@ -314,12 +280,12 @@ const handleBatchMoveSubmit = async (targetCategoryId: string) => {
 }
 
 .tags-count {
-  font-size: 14px;
-  margin-left: 4px;
+  font-size: 0.85rem;
+  color: var(--n-text-color-2);
 }
 
 .selected-text {
-  color: var(--n-primary-color);
+  color: var(--primary-color);
   font-weight: 500;
 }
 
@@ -328,10 +294,9 @@ const handleBatchMoveSubmit = async (targetCategoryId: string) => {
 }
 
 .pagination-area {
-  margin-top: 20px;
-  padding: 12px 0;
   text-align: center;
-  flex-shrink: 0;
+  padding: 16px 0;
+  color: var(--n-text-color-disabled);
 }
 
 .all-loaded {
@@ -352,13 +317,10 @@ const handleBatchMoveSubmit = async (targetCategoryId: string) => {
 }
 
 /* 响应式处理 */
-@media (max-width: 600px) {
-  .tag-grid-container {
-    padding: 12px;
-  }
-  
+@media (max-width: 768px) {
   .controls-section {
-    padding: 6px 8px;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
   }
 }
 </style> 

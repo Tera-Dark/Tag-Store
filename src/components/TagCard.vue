@@ -24,7 +24,10 @@ const tagStore = useTagStore();
 
 // --- Computed ---
 // Get the category name for display
-const categoryName = computed(() => tagStore.getCategoryNameById(props.tag.categoryId) || '未知分类');
+const categoryName = computed(() => {
+  const category = tagStore.getCategoryById(props.tag.categoryId);
+  return category ? category.name : '未知分类'; // Get name or default
+});
 
 // Format subtitles for display
 const displaySubtitles = computed(() => props.tag.subtitles?.join(' / ') || '');

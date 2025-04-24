@@ -1,6 +1,5 @@
 import { db } from './TagDatabase';
-import type { Library, Category, Tag } from '../types/data';
-import { liveQuery } from 'dexie';
+import type { Library, Category, Tag, Group } from '../types/data';
 
 // --- Type Definitions for Updates --- 
 // (To avoid complex Partial<Omit<...>> issues)
@@ -11,7 +10,7 @@ type UpdatableTagData = Partial<Pick<Tag, 'categoryId' | 'name' | 'subtitles' | 
 // 模板相关接口
 export interface TemplateInfo {
   name: string;      // 模板名称
-  path: string;      // 模板路径
+  path: string;      // 模板路径 (相对路径 in /public)
   description?: string; // 模板描述
 }
 
@@ -36,34 +35,117 @@ export const updateLibrary = (id: string, changes: UpdatableLibraryData): Promis
 };
 
 export const deleteLibrary = async (libraryId: string): Promise<void> => {
-    // Transaction to delete library and all its contents
-    return db.transaction('rw', db.libraries, db.categories, db.tags, async () => {
-        // 1. Delete tags of the library
-        await db.tags.where('libraryId').equals(libraryId).delete();
-        // 2. Delete categories of the library
-        await db.categories.where('libraryId').equals(libraryId).delete();
-        // 3. Delete the library itself
+    // Transaction to delete library and all its groups, categories, and tags
+    return db.transaction('rw', db.libraries, db.groups, db.categories, db.tags, async () => {
+        // 1. Find groups belonging to the library
+        const groupsToDelete = await db.groups.where('libraryId').equals(libraryId).toArray();
+        const groupIdsToDelete = groupsToDelete.map(g => g.id);
+        console.log(`Found ${groupIdsToDelete.length} groups to delete for library ${libraryId}`);
+
+        // 2. Find categories belonging to these groups
+        let categoryIdsToDelete: string[] = [];
+        if (groupIdsToDelete.length > 0) {
+            const categoriesToDelete = await db.categories.where('groupId').anyOf(groupIdsToDelete).toArray();
+            categoryIdsToDelete = categoriesToDelete.map(c => c.id);
+            console.log(`Found ${categoryIdsToDelete.length} categories to delete for library ${libraryId}`);
+        }
+
+        // 3. Delete tags belonging to these categories
+        if (categoryIdsToDelete.length > 0) {
+            const deletedTagsCount = await db.tags.where('categoryId').anyOf(categoryIdsToDelete).delete();
+            console.log(`Deleted ${deletedTagsCount} tags for library ${libraryId}`);
+        }
+
+        // 4. Delete the categories themselves
+        if (categoryIdsToDelete.length > 0) {
+            await db.categories.bulkDelete(categoryIdsToDelete);
+            console.log(`Deleted ${categoryIdsToDelete.length} categories for library ${libraryId}`);
+        }
+
+        // 5. Delete the groups themselves
+        if (groupIdsToDelete.length > 0) {
+            await db.groups.bulkDelete(groupIdsToDelete);
+             console.log(`Deleted ${groupIdsToDelete.length} groups for library ${libraryId}`);
+        }
+
+        // 6. Delete the library itself
         await db.libraries.delete(libraryId);
+         console.log(`Deleted library ${libraryId}`);
+    });
+};
+
+// === Group Operations ===
+
+export const getAllGroups = (libraryId: string): Promise<Group[]> => {
+  if (!libraryId) return Promise.resolve([]);
+  return db.groups.where('libraryId').equals(libraryId).sortBy('order'); // Sort by order
+};
+
+export const getGroupById = (id: string): Promise<Group | undefined> => {
+  return db.groups.get(id);
+};
+
+export const addGroup = (groupData: Omit<Group, 'id' | 'libraryId'>, libraryId: string): Promise<string> => {
+  if (!libraryId) return Promise.reject(new Error("Library ID is required to add a group."));
+  const newId = crypto.randomUUID();
+  // Ensure order is set if not provided
+  const order = typeof groupData.order === 'number' ? groupData.order : Date.now(); 
+  const newGroup: Group = { ...groupData, id: newId, libraryId, order };
+  return db.groups.add(newGroup).then(() => newId);
+};
+
+export const updateGroup = (id: string, changes: Partial<Omit<Group, 'id' | 'libraryId'>>): Promise<number> => {
+  return db.groups.update(id, changes);
+};
+
+// Deleting a group also deletes its categories and their tags
+export const deleteGroup = async (groupId: string): Promise<void> => {
+    return db.transaction('rw', db.groups, db.categories, db.tags, async () => {
+        // 1. Find categories belonging to the group
+        const categoriesToDelete = await db.categories.where('groupId').equals(groupId).toArray();
+        const categoryIdsToDelete = categoriesToDelete.map(cat => cat.id);
+        
+        // 2. Delete tags belonging to these categories
+        if (categoryIdsToDelete.length > 0) {
+            await db.tags.where('categoryId').anyOf(categoryIdsToDelete).delete();
+            console.log(`Deleted tags for ${categoryIdsToDelete.length} categories in group ${groupId}`);
+        }
+        
+        // 3. Delete the categories themselves
+        if (categoryIdsToDelete.length > 0) {
+            await db.categories.bulkDelete(categoryIdsToDelete);
+            console.log(`Deleted ${categoryIdsToDelete.length} categories in group ${groupId}`);
+        }
+        
+        // 4. Delete the group itself
+        await db.groups.delete(groupId);
+        console.log(`Deleted group ${groupId}`);
     });
 };
 
 // === Category Operations ===
 
-export const getAllCategories = (libraryId: string): Promise<Category[]> => {
-  if (!libraryId) return Promise.resolve([]); // Return empty if no library specified
-  return db.categories.where('libraryId').equals(libraryId).sortBy('name');
+export const getAllCategories = (groupId: string): Promise<Category[]> => {
+  if (!groupId) return Promise.resolve([]);
+  // Use the groupId index
+  return db.categories.where('groupId').equals(groupId).sortBy('name'); 
+};
+
+export const getCategoriesByGroupIds = (groupIds: string[]): Promise<Category[]> => {
+  if (!groupIds || groupIds.length === 0) return Promise.resolve([]);
+  // Use the groupId index with anyOf for efficiency
+  return db.categories.where('groupId').anyOf(groupIds).sortBy('name');
 };
 
 export const getCategoryById = (id: string): Promise<Category | undefined> => {
-    // Note: We don't filter by libraryId here, assuming ID is globally unique.
-    // If needed, libraryId could be passed and added to the query.
+    // Unchanged: assumes ID is globally unique
     return db.categories.get(id);
 };
 
-export const addCategory = (categoryData: Omit<Category, 'id' | 'libraryId'>, libraryId: string): Promise<string> => {
-  if (!libraryId) return Promise.reject(new Error("Library ID is required to add a category."));
+export const addCategory = (categoryData: Omit<Category, 'id' | 'groupId'>, groupId: string): Promise<string> => {
+  if (!groupId) return Promise.reject(new Error("Group ID is required to add a category."));
   const newId = crypto.randomUUID();
-  const newCategory: Category = { ...categoryData, id: newId, libraryId };
+  const newCategory: Category = { ...categoryData, id: newId, groupId }; // Add groupId
   return db.categories.add(newCategory).then(() => newId);
 };
 
@@ -72,14 +154,13 @@ export const updateCategory = (id: string, changes: UpdatableCategoryData): Prom
 };
 
 export const deleteCategory = async (categoryId: string): Promise<void> => {
-    const category = await db.categories.get(categoryId);
-    if (!category) return; // Category doesn't exist
-
-    const libraryId = category.libraryId; // Get the libraryId
+    // const category = await db.categories.get(categoryId);
+    // if (!category) return; // Category doesn't exist
+    // const groupId = category.groupId; // No longer needed for deletion logic here
 
     return db.transaction('rw', db.categories, db.tags, async () => {
-        // Delete tags belonging to this category AND this library
-        await db.tags.where({ categoryId: categoryId, libraryId: libraryId }).delete();
+        // Delete tags belonging to this category
+        await db.tags.where({ categoryId: categoryId }).delete();
         // Delete the category itself
         await db.categories.delete(categoryId);
     });
@@ -87,21 +168,28 @@ export const deleteCategory = async (categoryId: string): Promise<void> => {
 
 // === Tag Operations ===
 
-export const getAllTags = (libraryId: string): Promise<Tag[]> => {
-    if (!libraryId) return Promise.resolve([]);
-    return db.tags.where('libraryId').equals(libraryId).toArray();
+export const getAllTags = (categoryId: string): Promise<Tag[]> => {
+    if (!categoryId) return Promise.resolve([]);
+    return db.tags.where('categoryId').equals(categoryId).toArray();
     // Optional: Add sorting .sortBy('name') ?
 };
 
+export const getTagsByCategoryIds = (categoryIds: string[]): Promise<Tag[]> => {
+    if (!categoryIds || categoryIds.length === 0) return Promise.resolve([]);
+    // Use the categoryId index with anyOf for efficiency
+    return db.tags.where('categoryId').anyOf(categoryIds).sortBy('name'); 
+};
+
 export const getTagById = (id: string): Promise<Tag | undefined> => {
-    // Again, assuming ID is globally unique
+    // Unchanged: assumes ID is globally unique
     return db.tags.get(id);
 };
 
-export const addTag = (tagData: Omit<Tag, 'id' | 'libraryId'>, libraryId: string): Promise<string> => {
-    if (!libraryId) return Promise.reject(new Error("Library ID is required to add a tag."));
+export const addTag = (tagData: Omit<Tag, 'id'>): Promise<string> => {
+    // Removed libraryId check
+    // Category ID check should happen in the store based on loaded categories
     const newId = crypto.randomUUID();
-    const newTag: Tag = { ...tagData, id: newId, libraryId };
+    const newTag: Tag = { ...tagData, id: newId }; // No libraryId needed
     return db.tags.add(newTag).then(() => newId);
 };
 
@@ -114,278 +202,246 @@ export const deleteTag = (tagId: string): Promise<void> => {
 };
 
 export const batchDeleteTags = (tagIds: string[]): Promise<void> => {
-    // Dexie's bulkDelete handles arrays of primary keys directly
     return db.tags.bulkDelete(tagIds);
 };
 
 export const batchMoveTags = (tagIds: string[], targetCategoryId: string): Promise<number> => {
-    // We don't need libraryId here because update doesn't change it,
-    // but the calling logic in the store MUST ensure targetCategoryId belongs to the same library.
     return db.tags.where('id').anyOf(tagIds).modify({ categoryId: targetCategoryId });
 };
 
 // === Bulk Operations ===
 
 export const clearLibraryData = async (libraryId: string): Promise<void> => {
-   return db.transaction('rw', db.categories, db.tags, async () => {
-        await db.tags.where('libraryId').equals(libraryId).delete();
-        await db.categories.where('libraryId').equals(libraryId).delete();
-        // Optionally also delete the library entry itself? Depends on use case.
-        // await db.libraries.delete(libraryId); 
+   return db.transaction('rw', db.groups, db.categories, db.tags, async () => {
+        // 1. Find groups belonging to the library
+        const groupsToDelete = await db.groups.where('libraryId').equals(libraryId).toArray();
+        const groupIdsToDelete = groupsToDelete.map(g => g.id);
+        console.log(`Found ${groupIdsToDelete.length} groups to clear data from for library ${libraryId}`);
+
+        // 2. Find categories belonging to these groups
+        let categoryIdsToDelete: string[] = [];
+        if (groupIdsToDelete.length > 0) {
+            const categoriesToDelete = await db.categories.where('groupId').anyOf(groupIdsToDelete).toArray();
+            categoryIdsToDelete = categoriesToDelete.map(c => c.id);
+             console.log(`Found ${categoryIdsToDelete.length} categories to clear data from for library ${libraryId}`);
+        }
+
+        // 3. Delete tags belonging to these categories
+        if (categoryIdsToDelete.length > 0) {
+            const deletedTagsCount = await db.tags.where('categoryId').anyOf(categoryIdsToDelete).delete();
+            console.log(`Cleared ${deletedTagsCount} tags for library ${libraryId}`);
+        }
+
+        // 4. Delete the categories themselves
+        if (categoryIdsToDelete.length > 0) {
+            await db.categories.bulkDelete(categoryIdsToDelete);
+            console.log(`Cleared ${categoryIdsToDelete.length} categories for library ${libraryId}`);
+        }
+
+        // 5. Delete the groups themselves
+        if (groupIdsToDelete.length > 0) {
+            await db.groups.bulkDelete(groupIdsToDelete);
+             console.log(`Cleared ${groupIdsToDelete.length} groups for library ${libraryId}`);
+        }
+         console.log(`Cleared data for library ${libraryId}`);
     });
 };
 
 export const clearAllData = async (): Promise<void> => {
-    // This is dangerous in a multi-library context. Consider removing or restricting.
+    // This is dangerous, use with caution.
     console.warn("Clearing ALL data from the database!");
-    return db.transaction('rw', db.libraries, db.categories, db.tags, async () => {
+    return db.transaction('rw', db.libraries, db.groups, db.categories, db.tags, async () => {
         await db.tags.clear();
         await db.categories.clear();
+        await db.groups.clear(); // Added group clearing
         await db.libraries.clear();
+        console.log("All database tables cleared.");
     });
 };
 
-// Add multiple categories, ensuring name uniqueness
+// Add multiple groups (unchanged conceptually)
+export const bulkAddGroups = (groups: Group[]): Promise<string[]> => {
+    // Assumes groups array already has correct libraryId set
+    // Also assumes IDs are pre-generated if needed, otherwise Dexie generates them if primary key is '++id'
+    // Since our ID is string (UUID), they MUST be provided in the 'groups' array
+    console.log(`Bulk adding ${groups.length} groups...`);
+    return db.groups.bulkAdd(groups, { allKeys: true }) as Promise<string[]>;
+};
+
+// Changed: Add multiple categories (requires groupId)
 export const bulkAddCategories = (categories: Category[]): Promise<string[]> => {
-    // Assumes categories array already has correct libraryId set
+    // Assumes categories array already has correct groupId set
+    // Assumes IDs are pre-generated (UUIDs)
+    console.log(`Bulk adding ${categories.length} categories...`);
     return db.categories.bulkAdd(categories, { allKeys: true }) as Promise<string[]>;
 };
 
-// Add multiple tags
+// Changed: Add multiple tags (requires categoryId)
 export const bulkAddTags = (tags: Tag[]): Promise<string[]> => {
-    // Assumes tags array already has correct libraryId set
+    // Assumes tags array already has correct categoryId set
+    // Assumes IDs are pre-generated (UUIDs)
+     console.log(`Bulk adding ${tags.length} tags...`);
     return db.tags.bulkAdd(tags, { allKeys: true }) as Promise<string[]>;
 };
 
-// === Live Queries (Example) ===
-// Use liveQuery to create observables that update automatically when data changes
-
-export const liveCategories = liveQuery(() => getAllCategories(''));
-export const liveTags = liveQuery(() => getAllTags(''));
+// --- 模板和用户库扫描 ---
 
 /**
- * 扫描模板目录并返回所有可用的JSON模板文件
+ * Scans built-in template files (e.g., in /public/templates) using Vite's glob import.
+ * Returns metadata about each found template.
  */
 export const scanTemplateFiles = async (): Promise<TemplateInfo[]> => {
-  console.log("开始扫描模板文件...");
-  try {
-    const baseUrl = import.meta.env.BASE_URL; // 通常是 / 或 /Tag-Store/
-    console.log(`  当前 BASE_URL: ${baseUrl}`);
-    // 构建绝对基础路径
-    const templatesBasePath = `${baseUrl}templates/`;
-    console.log(`  模板基础路径: ${templatesBasePath}`);
-    
-    let templates: TemplateInfo[] = [];
-    let indexFound = false;
+    console.log("Scanning for built-in template files...");
+    const templates: TemplateInfo[] = [];
+    const modules = import.meta.glob('/public/templates/*.json');
+    const indexJsonPath = '/public/templates/index.json'; // Define path to exclude
 
-    // 1. 尝试加载 templates/index.json
-    console.log("  步骤 1: 尝试加载模板索引文件 (index.json)...", { baseUrl });
-    try {
-      const cacheBuster = `?_t=${Date.now()}`;
-      const indexUrl = `${templatesBasePath}index.json${cacheBuster}`;
-      console.log(`    尝试绝对路径: ${indexUrl}`);
-      
-      const options = {
-        method: 'GET',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
+    for (const path in modules) {
+        // Explicitly skip the index.json file if it exists
+        if (path === indexJsonPath) {
+             console.log(`  Skipping index file: ${path}`);
+             continue;
         }
-      };
-      const response = await fetch(indexUrl, options);
-      console.log(`    Fetch ${indexUrl} 状态: ${response.status}`); 
 
-      if (response.ok) {
         try {
-          const indexData: TemplateInfo[] = await response.json();
-          console.log(`    ✅ 成功加载并解析模板索引: ${indexUrl}`, JSON.stringify(indexData)); 
-          
-          if (Array.isArray(indexData)) {
-            const loadedTemplatesFromIndex: TemplateInfo[] = [];
-            for (const item of indexData) {
-              if (item.name && item.path) {
-                 // index.json 中的 path 是相对于 templates/ 目录的
-                 const fullPath = `${templatesBasePath}${item.path}`; // 直接拼接基础路径
-                loadedTemplatesFromIndex.push({
-                  name: item.name,
-                  path: fullPath, 
-                  description: item.description || `模板: ${item.name}`
-                });
-              } else {
-                console.warn(`    🟡 索引项格式错误，缺少 name 或 path:`, item);
-              }
-            }
-            if (loadedTemplatesFromIndex.length > 0) {
-              templates = loadedTemplatesFromIndex;
-              indexFound = true;
-              console.log(`    从索引加载了 ${templates.length} 个模板`);
+            // Dynamically import the module to access its content
+            const importer = modules[path];
+            const content: any = await importer(); // Use 'any' to handle potential structure variations initially
+
+            let name = 'Unknown Template';
+            let description = undefined;
+
+            // Determine name and description based on file structure
+            if (content && content.library && content.library.name) { // New format
+                name = content.library.name;
+                description = content.library.description;
+            } else if (content && content.metadata && content.metadata.name) { // Old format
+                name = content.metadata.name;
+                description = content.metadata.description;
             } else {
-               console.warn(`    🟡 索引文件 ${indexUrl} 内容为空或格式不正确`);
+                 // Fallback: derive name from path if no name found in content
+                 name = path.split('/').pop()?.replace('.json', '') || path;
+                 console.warn(`Template file ${path} has no name in library or metadata, using filename.`);
             }
-          } else {
-            console.warn(`    🟡 解析后的索引数据不是数组:`, indexData);
-          }
-        } catch(parseError) {
-          console.error(`    ❌ 解析索引 JSON ${indexUrl} 失败:`, parseError);
-        }
-      }
-    } catch (fetchError) {
-      console.log(`    尝试加载索引 ${templatesBasePath}index.json 失败:`, fetchError);
-    }
 
-    // 2. 回退到加载 default.json (如果需要)
-    if (!indexFound) {
-      console.warn("  🟡 步骤 2: 未找到或无法解析模板索引，回退到加载 default.json...");
-      const defaultUrl = `${templatesBasePath}default.json`;
-      const cacheBuster = `?_t=${Date.now()}`;
-      const urlWithCache = `${defaultUrl}${cacheBuster}`;
-      console.log(`    尝试加载默认模板: ${urlWithCache}`);
-      try {
-        const options = { method: 'HEAD', /* ... cache headers ... */ };
-        const response = await fetch(urlWithCache, options);
-        if (response.ok) {
-          console.log(`    ✅ 找到默认模板: ${defaultUrl}`);
-          templates.push({
-            name: 'Default',
-            path: urlWithCache, 
-            description: '默认模板'
-          });
+            templates.push({
+                name: name,
+                path: path, // Store the full path as used by glob import
+                description: description
+            });
+             console.log(`  Found template: ${name} at ${path}`);
+        } catch (error) {
+            console.error(`Error processing template file ${path}:`, error);
+            // Optionally add a placeholder or skip the template
+            templates.push({
+                name: path.split('/').pop()?.replace('.json', '') || `Error Loading ${path}`,
+                path: path,
+                description: `Error loading or parsing this template.`
+            });
         }
-      } catch (error) {
-        console.log(`    检查默认模板 ${defaultUrl} 失败:`, error);
-      }
     }
-    
-    console.log(`模板扫描完成，最终可用模板 ${templates.length} 个:`, templates.map(t => t.name));
-    return templates;
-
-  } catch (error) {
-    console.error('❌ 扫描模板文件时发生严重错误:', error);
-    return [];
-  }
+    console.log(`Finished scanning templates. Found ${templates.length}.`);
+    return templates.sort((a, b) => a.name.localeCompare(b.name));
 };
 
-// 修改 scanUserLibraries 类似逻辑
-export const scanUserLibraries = async (): Promise<TemplateInfo[]> => {
-  console.log("开始扫描用户库文件...");
-  try {
-    const baseUrl = import.meta.env.BASE_URL;
-    console.log(`  当前 BASE_URL: ${baseUrl}`);
-    const userLibsBasePath = `${baseUrl}user_libraries/`;
-    console.log(`  用户库基础路径: ${userLibsBasePath}`);
-
-    const userLibs: TemplateInfo[] = [];
-    let indexFound = false;
-
-    // 1. 尝试加载 user_libraries/index.json
-    console.log("  步骤 1: 尝试加载用户库索引文件 (index.json)...");
-    try {
-      const cacheBuster = `?_t=${Date.now()}`;
-      const indexUrl = `${userLibsBasePath}index.json${cacheBuster}`;
-      console.log(`    尝试绝对路径: ${indexUrl}`);
-      const options = { /* ... cache headers ... */ };
-      const response = await fetch(indexUrl, options);
-      console.log(`    Fetch ${indexUrl} 状态: ${response.status}`);
-
-      if (response.ok) {
-        try {
-          const indexData = await response.json();
-          console.log(`    ✅ 成功加载并解析用户库索引: ${indexUrl}`, JSON.stringify(indexData));
-
-          if (indexData.libraries && Array.isArray(indexData.libraries)) {
-            const loadedLibsFromIndex: TemplateInfo[] = [];
-            for (const lib of indexData.libraries) {
-              if (lib.name && lib.path) {
-                 // index.json 中的 path 是相对于 user_libraries/ 目录的
-                const fullPath = lib.path.startsWith('http')
-                                 ? lib.path
-                                 : `${userLibsBasePath}${lib.path}`; // 直接拼接基础路径
-                loadedLibsFromIndex.push({
-                  name: lib.name,
-                  path: fullPath,
-                  description: lib.description || `共有${lib.tags_count || 0}个标签，${lib.categories_count || 0}个分类`
-                });
-              } else {
-                 console.warn(`    🟡 用户库索引项格式错误，缺少 name 或 path:`, lib);
-              }
-            }
-             if (loadedLibsFromIndex.length > 0) {
-                userLibs.push(...loadedLibsFromIndex); // 使用 push(...)
-                indexFound = true;
-                console.log(`    从索引加载了 ${loadedLibsFromIndex.length} 个用户库`);
-              } else {
-                 console.warn(`    🟡 用户库索引文件 ${indexUrl} 内容为空或格式不正确`);
-              }
-          } else {
-            console.warn(`    🟡 解析后的用户库索引数据格式错误 (缺少 libraries 数组):`, indexData);
-          }
-        } catch(parseError) {
-          console.error(`    ❌ 解析用户库索引 JSON ${indexUrl} 失败:`, parseError);
-        }
-      }
-    } catch (fetchError) {
-      console.log(`    尝试加载用户库索引 ${userLibsBasePath}index.json 失败:`, fetchError);
-    }
-
-    // 2. 如果没有找到索引文件，尝试直接扫描（这部分逻辑在部署环境几乎不会成功，可以考虑移除或简化）
-    if (!indexFound) {
-      console.warn("  🟡 步骤 2: 未找到用户库索引，将不尝试直接扫描文件名。依赖 index.json 文件。");
-    }
-    
-    console.log(`用户库扫描完成，最终找到 ${userLibs.length} 个:`, userLibs.map(l => l.name));
-    return userLibs;
-  } catch (error) {
-    console.error('❌ 扫描用户库时发生严重错误:', error);
-    return [];
-  }
-};
 
 /**
- * 加载指定用户库文件的内容
- * @param userLibraryPath 完整的 URL 或相对路径
- * @returns Promise<any | null> 用户库数据或null（如果加载失败）
+ * NEW: Scans user library files (in /public/user_libraries) using Vite's glob import.
+ * Returns metadata about each found library file.
+ * This replaces the need for index.json.
+ */
+export const scanUserLibraries = async (): Promise<TemplateInfo[]> => {
+    console.log("Scanning for user library files using Vite glob import...");
+    const userLibs: TemplateInfo[] = [];
+    // Adjust the glob pattern for the user_libraries directory
+    // We still import lazily
+    const modules = import.meta.glob('/public/user_libraries/*.json');
+    const indexJsonPath = '/public/user_libraries/index.json'; // Define path to exclude
+
+    for (const path in modules) {
+        // Explicitly skip the index.json file if it exists
+        if (path === indexJsonPath) {
+            console.log(`  Skipping index file: ${path}`);
+            continue;
+        }
+
+        try {
+            const importer = modules[path];
+            const content: any = await importer(); // Use 'any'
+
+            let name = 'Unknown Library';
+            let description = undefined;
+
+            // Determine name and description (handle both structures)
+            if (content && content.library && content.library.name) { // New format
+                name = content.library.name;
+                description = content.library.description;
+            } else if (content && content.metadata && content.metadata.name) { // Old format
+                name = content.metadata.name;
+                description = content.metadata.description;
+            } else {
+                 // Fallback to filename
+                 name = path.split('/').pop()?.replace('.json', '') || path;
+                 console.warn(`User library file ${path} has no name in library or metadata, using filename.`);
+            }
+
+            userLibs.push({
+                name: name,
+                // Store the path relative to /public for consistency if needed elsewhere,
+                // or keep the full path as returned by glob. Let's keep full path for now.
+                path: path,
+                description: description
+            });
+            console.log(`  Found user library: ${name} at ${path}`);
+
+        } catch (error) {
+            console.error(`Error processing user library file ${path}:`, error);
+            userLibs.push({
+                name: path.split('/').pop()?.replace('.json', '') || `Error Loading ${path}`,
+                path: path,
+                description: `Error loading or parsing this library file.`
+            });
+        }
+    }
+    console.log(`Finished scanning user libraries. Found ${userLibs.length}.`);
+    return userLibs.sort((a, b) => a.name.localeCompare(b.name));
+};
+
+
+/**
+ * Loads and parses the content of a specific user library file.
+ * Uses fetch API.
+ * @param userLibraryPath - The full path relative to the public directory (e.g., /user_libraries/mylib.json)
  */
 export const loadUserLibraryContent = async (userLibraryPath: string): Promise<any | null> => {
-  if (!userLibraryPath) return null;
-  console.log(`尝试加载用户库内容: ${userLibraryPath}`);
-  try {
-    // Ensure cache busting
-    const cacheBuster = `?_t=${Date.now()}`;
-    const url = userLibraryPath.includes('?') 
-                ? `${userLibraryPath}&_t=${Date.now()}` 
-                : `${userLibraryPath}${cacheBuster}`;
-
-    const options = {
-      method: 'GET',
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    };
-    
-    const response = await fetch(url, options);
-    console.log(`  Fetch ${url} 状态: ${response.status}`);
-    
-    if (!response.ok) {
-       // Check if the server returned HTML (SPA fallback)
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('text/html')) {
-         console.error(`  ❌ Fetch 成功但服务器返回了 HTML (SPA fallback?) 而不是 JSON: ${url}`);
-         throw new Error(`Server returned HTML instead of JSON for ${url}`);
-      }
-      throw new Error(`HTTP error! status: ${response.status}`);
+    let relativePath = userLibraryPath;
+    if (relativePath.startsWith('/public/')) {
+        relativePath = relativePath.substring('/public'.length); // -> /user_libraries/xxx.json
     }
-    
-    const data = await response.json();
-    console.log(`  ✅ 成功加载并解析用户库内容: ${url}`);
-    return data;
-    
-  } catch (error) {
-    console.error(`❌ 加载或解析用户库文件失败 ${userLibraryPath}:`, error);
-    return null;
-  }
+
+    // Combine BASE_URL with the relative path correctly
+    const baseUrl = import.meta.env.BASE_URL; // e.g., '/' or '/Tag-Store/'
+    // Ensure no double slashes if base ends with / and relative starts with /
+    const finalUrlPath = baseUrl.endsWith('/')
+                         ? `${baseUrl.slice(0, -1)}${relativePath}`
+                         : `${baseUrl}${relativePath}`;
+
+    const url = `${finalUrlPath}?_t=${Date.now()}`; // Use the combined path
+    console.log(`尝试加载用户库内容 (via fetch, base adjusted): ${url}`); // Updated log
+
+    try {
+        const response = await fetch(url); // Fetch the corrected URL
+        console.log(`  Fetch ${url} 状态: ${response.status}`); // Log fetch status
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} for ${url}`);
+        }
+        const data = await response.json();
+        console.log(`  ✅ 成功加载并解析用户库内容 (via fetch): ${url}`);
+        return data;
+    } catch (error) {
+        console.error(`❌ 加载或解析用户库文件失败 ${url}:`, error);
+        return null;
+    } 
 };
 
 /**
@@ -434,32 +490,31 @@ export const saveUserLibrary = async (data: any, fileName?: string): Promise<boo
  * @returns Promise<TagStoreTemplate | null> 模板数据或null（如果加载失败）
  */
 export const loadTemplateFile = async (templatePath: string): Promise<any | null> => {
-  try {
-    console.log(`尝试加载模板: ${templatePath}`);
-    
-    // 添加时间戳参数以避免浏览器缓存
-    const cacheBuster = `?_t=${Date.now()}`;
-    const url = templatePath.includes('?') ? `${templatePath}&_t=${Date.now()}` : `${templatePath}${cacheBuster}`;
-    
-    // 设置请求选项以禁用缓存
-    const options = {
-      method: 'GET',
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    };
-    
-    const response = await fetch(url, options);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    let relativePath = templatePath;
+    if (relativePath.startsWith('/public/')) {
+        relativePath = relativePath.substring('/public'.length); // -> /templates/xxx.json
     }
-    const data = await response.json();
-    console.log(`模板加载成功: ${url}`);
-    return data;
-  } catch (error) {
-    console.error(`加载模板文件失败 ${templatePath}:`, error);
-    return null;
-  }
+
+    // Combine BASE_URL with the relative path correctly
+    const baseUrl = import.meta.env.BASE_URL;
+    const finalUrlPath = baseUrl.endsWith('/')
+                         ? `${baseUrl.slice(0, -1)}${relativePath}`
+                         : `${baseUrl}${relativePath}`;
+
+    const url = `${finalUrlPath}?_t=${Date.now()}`;
+    console.log(`尝试加载模板 (via fetch, base adjusted): ${url}`); // Updated log
+
+    try {
+       const response = await fetch(url);
+       console.log(`  Fetch ${url} 状态: ${response.status}`); // Log fetch status
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status} for ${url}`);
+        }
+        const data = await response.json();
+        console.log(`模板加载成功 (via fetch): ${url}`); // Updated log message
+        return data;
+    } catch (error) {
+       console.error(`加载模板文件失败 ${url}:`, error); // Updated log message
+       return null;
+    }
 }; 

@@ -1,84 +1,71 @@
 <script setup lang="ts">
 import { ref, watch, defineProps, defineEmits, computed } from 'vue';
 import { NModal, NButton, NSpin, useMessage } from 'naive-ui';
-import CategoryForm from '../forms/CategoryForm.vue';
-import type { Category } from '../../types/data';
+import GroupForm from '../forms/GroupForm.vue';
+import type { Group } from '../../types/data';
 
-// --- Types --- 
-interface CategoryFormData {
+// --- Types ---
+interface GroupFormData {
   name: string;
-  // Add other fields if needed
 }
 
-// --- Props --- 
+// --- Props ---
 interface Props {
   show: boolean;
   mode: 'add' | 'edit';
-  categoryToEdit?: Category | null; // Pass the whole category for editing
+  groupToEdit?: Group | null;
 }
 const props = defineProps<Props>();
 
+// --- Emits ---
 interface EmittedData {
   mode: 'add' | 'edit';
-  // Ensure formData type matches the form's state
-  formData: { name: string, groupId: string | null }; 
-  categoryId?: string;
+  formData: GroupFormData;
+  groupId?: string;
 }
-
-// --- Emits --- 
 const emit = defineEmits<{ 
   (e: 'update:show', value: boolean): void;
   (e: 'submit', data: EmittedData): void; 
 }>();
 
-// --- Refs & State --- 
-const formRef = ref<InstanceType<typeof CategoryForm> | null>(null);
+// --- Refs & State ---
+const formRef = ref<InstanceType<typeof GroupForm> | null>(null);
 const isProcessing = ref(false);
 const message = useMessage();
 
-// --- Computed --- 
-const title = computed(() => (props.mode === 'add' ? '添加新分类' : '编辑分类'));
+// --- Computed ---
+const title = computed(() => (props.mode === 'add' ? '添加新分组' : '编辑分组'));
 const initialFormData = computed(() => {
-  return props.mode === 'edit' && props.categoryToEdit ? { name: props.categoryToEdit.name } : undefined;
+  return props.mode === 'edit' && props.groupToEdit ? { name: props.groupToEdit.name } : undefined;
 });
 
-// --- Methods --- 
+// --- Methods ---
 const handleClose = () => {
-  if (isProcessing.value) return; // Prevent closing while processing
+  if (isProcessing.value) return;
   emit('update:show', false);
 };
 
 const handleSubmit = async () => {
   if (!formRef.value) return;
-
   isProcessing.value = true;
   try {
     await formRef.value.validate();
-    const formData = formRef.value.getFormData(); // Now includes groupId
+    const formData = formRef.value.getFormData();
     emit('submit', { 
       mode: props.mode,
-      formData: formData, // formData already includes groupId
-      categoryId: props.mode === 'edit' ? props.categoryToEdit?.id : undefined,
+      formData: formData,
+      groupId: props.mode === 'edit' ? props.groupToEdit?.id : undefined,
     });
-    // Optionally close dialog on successful submit emit (parent handles actual success/failure)
-    // handleClose(); 
   } catch (validationErrors) {
-    console.log('Validation failed, not submitting.');
     message.error('请检查输入内容');
   } finally {
     isProcessing.value = false;
   }
 };
 
-// Ensure form is ready when dialog becomes visible, especially for editing
 watch(() => props.show, (isVisible) => {
   if (isVisible) {
-    // Reset processing state when shown
     isProcessing.value = false; 
-    // We might not need to explicitly reset form here if CategoryForm's watcher works correctly
-    // nextTick(() => {
-    //   formRef.value?.resetFields(); // Or update based on initialFormData
-    // });
   }
 });
 
@@ -97,10 +84,9 @@ watch(() => props.show, (isVisible) => {
     @update:show="handleClose"
   >
     <n-spin :show="isProcessing">
-      <CategoryForm 
+      <GroupForm 
         ref="formRef" 
         :initial-data="initialFormData" 
-        :mode="props.mode"
        />
     </n-spin>
     <template #footer>

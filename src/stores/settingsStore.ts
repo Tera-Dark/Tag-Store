@@ -3,11 +3,51 @@ import { ref, computed, watch } from 'vue';
 import { useOsTheme, darkTheme } from 'naive-ui';
 import type { GlobalThemeOverrides } from 'naive-ui';
 
-// Define possible theme modes
-type ThemeMode = 'light' | 'dark' | 'system';
+// Define AppSettings type directly here if file doesn't exist
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+export interface AppSettings {
+  themeMode: ThemeMode;
+  // Tag Drawer specific settings (could be moved to its own store/section later)
+  tagDrawerColumns: number;
+  tagDrawerShowTagCount: boolean;
+  tagDrawerDisplayMode: 'text' | 'image'; // Assuming these are the modes
+  tagDrawerExcludeTags: string[];
+  tagDrawerFontSize: number; // Kept for potential specific drawer font size
+  tagDrawerHistorySize: number; // Renamed to be more specific
+  tagDrawerShowCategory: boolean;
+  tagDrawerShowGroup: boolean;
+  tagDrawerNumTagsToDraw: number;
+  tagDrawerUseMultiCategoryMode: boolean;
+  tagDrawerEnsureEachCategory: boolean;
+  tagDrawerDrawMethod: string; // Consider using specific literal types like 'random' | 'leastUsed'
+  tagDrawerSaveHistory: boolean;
+  // --- NEW GLOBAL SETTINGS ---
+  globalFontSize: number; // New global font size
+}
 
 // LocalStorage key
-const THEME_STORAGE_KEY = 'tagstore_theme_mode';
+const SETTINGS_STORAGE_KEY = 'tagstore_app_settings';
+
+// --- Default Settings ---
+const defaultSettings: AppSettings = {
+  themeMode: 'system',
+  tagDrawerColumns: 3,
+  tagDrawerShowTagCount: true,
+  tagDrawerDisplayMode: 'text', 
+  tagDrawerExcludeTags: [],
+  tagDrawerFontSize: 14, // Keep this specific setting? Or remove if global is enough?
+  tagDrawerHistorySize: 20, // <<< Default history size
+  tagDrawerShowCategory: true,
+  tagDrawerShowGroup: true,
+  tagDrawerNumTagsToDraw: 5,
+  tagDrawerUseMultiCategoryMode: false,
+  tagDrawerEnsureEachCategory: false,
+  tagDrawerDrawMethod: 'random',
+  tagDrawerSaveHistory: true,
+  // --- NEW DEFAULTS ---
+  globalFontSize: 14, // <<< Default global font size
+};
 
 // Theme Overrides for Dark Mode (Based on Dribbble Reference)
 const darkThemeOverrides: GlobalThemeOverrides = {
@@ -150,109 +190,136 @@ const lightThemeOverrides: GlobalThemeOverrides = {
 
 export const useSettingsStore = defineStore('settingsStore', () => {
   // --- State ---
-  const settings = ref<{ themeMode: ThemeMode }>({ themeMode: 'system' });
-  const osTheme = useOsTheme(); // 'light' | 'dark' | null
+  const settings = ref<AppSettings>({ ...defaultSettings });
+  const osTheme = useOsTheme();
+  const isSidebarCollapsed = ref(false);
+
+  // ThemeOverrides computed property that INCLUDES dynamic font size
+  const naiveThemeOverrides = computed((): GlobalThemeOverrides => {
+    const baseOverrides = (settings.value.themeMode === 'dark' || (settings.value.themeMode === 'system' && osTheme.value === 'dark')) 
+      ? darkThemeOverrides 
+      : lightThemeOverrides;
+    
+    // Create a deep copy or merge carefully to avoid modifying originals
+    // and ensure all necessary levels are present
+    const dynamicOverrides: GlobalThemeOverrides = {
+        ...baseOverrides, // Copy top-level keys like Button, Card, etc.
+        common: { // Deep merge common properties
+            ...baseOverrides.common, // Copy base common properties
+            fontSize: `${settings.value.globalFontSize}px` // Apply dynamic font size
+        }
+    };
+    
+    // console.log("Applied Font Size:", dynamicOverrides.common?.fontSize);
+    return dynamicOverrides;
+  });
 
   // --- Computed ---
   const themeMode = computed(() => settings.value.themeMode);
 
-  // Computed property to get the actual Naive UI theme object
   const naiveTheme = computed(() => {
     if (settings.value.themeMode === 'dark' || (settings.value.themeMode === 'system' && osTheme.value === 'dark')) {
-      return darkTheme; // Return Naive's base dark theme
+      return darkTheme; 
     } else {
-      return null; // Use Naive's default light theme
+      return null; 
     }
   });
-
-  // Computed property for theme overrides
-  const naiveThemeOverrides = computed(() => {
-    if (settings.value.themeMode === 'dark' || (settings.value.themeMode === 'system' && osTheme.value === 'dark')) {
-      // 对暗色主题做一些调整
-      const updatedDarkOverrides = { ...darkThemeOverrides };
-      updatedDarkOverrides.common = {
-        ...updatedDarkOverrides.common,
-        borderRadius: '8px', // 更新暗色主题的圆角
-      };
-      updatedDarkOverrides.Card = {
-        ...updatedDarkOverrides.Card,
-        borderRadius: '12px',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-      };
-      return updatedDarkOverrides;
-    } else {
-      return lightThemeOverrides; // 使用新的亮色主题配置
-    }
-  });
-
+  
   // --- Actions ---
   const setThemeMode = (mode: ThemeMode) => {
     if (['light', 'dark', 'system'].includes(mode)) {
       settings.value.themeMode = mode;
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, mode);
-      } catch (error) { console.error("Failed to save theme:", error); }
-      // Add/remove system listener based on new mode
-      updateSystemThemeListener();
+      // <<< Need to update listener logic if kept >>>
+      updateSystemThemeListener(); 
+      saveSettings(); 
     }
   };
 
-  // System theme listener logic
+  const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    settings.value[key] = value;
+    saveSettings();
+    if (key === 'themeMode') { 
+      updateSystemThemeListener();
+    }
+    // No need for specific action if font size change is handled by computed themeOverrides
+  };
+
+  const toggleSidebar = () => {
+    isSidebarCollapsed.value = !isSidebarCollapsed.value;
+  };
+  
+  // System theme listener logic 
   const mediaQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
   const handleSystemChange = () => {
-    // Only trigger re-evaluation if mode is currently 'system'
     if (settings.value.themeMode === 'system') {
-      // Simple re-assignment to trigger computed update
+      // Trigger reactivity by re-evaluating computed props
+      // Force update - might need a more robust way if this isn't enough
       settings.value.themeMode = 'system'; 
+      console.log("System theme changed, recalculating...")
     }
   };
 
   const updateSystemThemeListener = () => {
-    if (settings.value.themeMode === 'system' && mediaQuery) {
-      mediaQuery.addEventListener('change', handleSystemChange);
-    } else if (mediaQuery) {
-      mediaQuery.removeEventListener('change', handleSystemChange);
+    if (mediaQuery) {
+        mediaQuery.removeEventListener('change', handleSystemChange);
+        if (settings.value.themeMode === 'system') {
+            mediaQuery.addEventListener('change', handleSystemChange);
+        }
     }
-  }
-
-  // Initial load
-  const initializeSettings = () => {
-    let savedTheme: ThemeMode = 'system'; 
-    try {
-      const storedValue = localStorage.getItem(THEME_STORAGE_KEY);
-      if (storedValue && ['light', 'dark', 'system'].includes(storedValue)) {
-        savedTheme = storedValue as ThemeMode;
-      }
-    } catch (error) { console.error("Failed to load theme:", error); }
-    settings.value.themeMode = savedTheme; // Set initial value *before* calling setThemeMode
-    setThemeMode(savedTheme); // Call action to save (redundant save but ensures listener logic runs)
   };
 
-  // Save settings to local storage
+  const initializeSettings = () => {
+    let loadedSettings: Partial<AppSettings> = {};
+    try {
+      const storedValue = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (storedValue) {
+        loadedSettings = JSON.parse(storedValue);
+      }
+    } catch (error) { 
+      console.error("Failed to load settings:", error); 
+      localStorage.removeItem(SETTINGS_STORAGE_KEY); 
+    }
+    // Merge loaded settings with defaults
+    settings.value = { ...defaultSettings, ...loadedSettings }; 
+    // Ensure theme mode is valid after loading
+    if (!['light', 'dark', 'system'].includes(settings.value.themeMode)) {
+        settings.value.themeMode = defaultSettings.themeMode;
+    }
+    updateSystemThemeListener(); // Call after loading/validating settings
+    // Save potentially merged settings after initialization and listener setup
+    saveSettings(); 
+  };
+
   const saveSettings = () => {
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, settings.value.themeMode);
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings.value));
     } catch (error) {
       console.error('Failed to save settings to localStorage:', error);
     }
   };
 
   // Watch for OS theme changes when mode is 'system'
-  watch([osTheme, themeMode], () => {
+  watch([osTheme, () => settings.value.themeMode], () => { // Watch the themeMode within settings
     // This watch is mainly to trigger reactivity updates 
     // if components rely directly on `naiveTheme` computed prop.
     // The computed prop itself handles the logic.
-    console.log(`Theme recalculated: OS=${osTheme.value}, Mode=${themeMode.value}, Resulting Theme=${naiveTheme.value ? 'dark' : 'light'}`);
+    console.log(`Theme recalculated: OS=${osTheme.value}, Mode=${settings.value.themeMode}, Resulting Theme=${naiveTheme.value ? 'dark' : 'light'}`);
   }, { immediate: true });
+
+  // Initialize on store creation
+  initializeSettings();
+  updateSystemThemeListener();
 
   // --- Return (Ensure all needed parts are returned) ---
   return {
-    settings,
+    settings, // Return the entire settings object
     themeMode, // state
     naiveTheme, // computed getter
-    naiveThemeOverrides, // computed getter
+    naiveThemeOverrides, // Return the computed overrides
     setThemeMode, // action
     initializeSettings, // action
-    saveSettings, // action
+    updateSetting, // Expose generic update function
+    isSidebarCollapsed,
+    toggleSidebar
   };
 }); 

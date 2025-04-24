@@ -4,67 +4,86 @@
     "name": "English Sample 50",
     "description": "A comprehensive library with 50 English tags for testing."
   },
-  "categories": [
-    { "name": "Technology" },
-    { "name": "Art" },
-    { "name": "Science" },
-    { "name": "Business" },
-    { "name": "Lifestyle" }
-  ],
-  "tags": [
-    { "categoryName": "Technology", "name": "Artificial Intelligence", "subtitles": ["AI", "Machine Learning"], "keyword": "人工智能" },
-    { "categoryName": "Technology", "name": "Blockchain", "subtitles": ["Distributed Ledger", "Crypto"], "keyword": "区块链" },
-    { "categoryName": "Technology", "name": "Cloud Computing", "subtitles": ["SaaS", "PaaS"], "keyword": "云计算" },
-    { "categoryName": "Technology", "name": "Internet of Things", "subtitles": ["IoT", "Connected Devices"], "keyword": "物联网" },
-    { "categoryName": "Technology", "name": "Virtual Reality", "subtitles": ["VR", "Immersive"], "keyword": "虚拟现实" },
-    { "categoryName": "Technology", "name": "Augmented Reality", "subtitles": ["AR", "Mixed Reality"], "keyword": "增强现实" },
-    { "categoryName": "Technology", "name": "Quantum Computing", "subtitles": ["Qubits", "Superposition"], "keyword": "量子计算" },
-    { "categoryName": "Technology", "name": "Cybersecurity", "subtitles": ["Security", "Protection"], "keyword": "网络安全" },
-    { "categoryName": "Technology", "name": "Big Data", "subtitles": ["Analytics", "Data Science"], "keyword": "大数据" },
-    { "categoryName": "Technology", "name": "Robotics", "subtitles": ["Automation", "Mechanical"], "keyword": "机器人技术" },
-
-    { "categoryName": "Art", "name": "Impressionism", "subtitles": ["Monet", "Light"], "keyword": "印象派" },
-    { "categoryName": "Art", "name": "Cubism", "subtitles": ["Picasso", "Geometric"], "keyword": "立体主义" },
-    { "categoryName": "Art", "name": "Surrealism", "subtitles": ["Dali", "Dreams"], "keyword": "超现实主义" },
-    { "categoryName": "Art", "name": "Renaissance", "subtitles": ["Da Vinci", "Rebirth"], "keyword": "文艺复兴" },
-    { "categoryName": "Art", "name": "Abstract", "subtitles": ["Non-representational", "Form"], "keyword": "抽象艺术" },
-    { "categoryName": "Art", "name": "Pop Art", "subtitles": ["Warhol", "Commercial"], "keyword": "波普艺术" },
-    { "categoryName": "Art", "name": "Minimalism", "subtitles": ["Simple", "Essential"], "keyword": "极简主义" },
-    { "categoryName": "Art", "name": "Photography", "subtitles": ["Camera", "Visual"], "keyword": "摄影" },
-    { "categoryName": "Art", "name": "Digital Art", "subtitles": ["Computer", "Pixels"], "keyword": "数字艺术" },
-    { "categoryName": "Art", "name": "Sculpture", "subtitles": ["3D", "Form"], "keyword": "雕塑" },
-
-    { "categoryName": "Science", "name": "Astronomy", "subtitles": ["Stars", "Universe"], "keyword": "天文学" },
-    { "categoryName": "Science", "name": "Biology", "subtitles": ["Life", "Organisms"], "keyword": "生物学" },
-    { "categoryName": "Science", "name": "Chemistry", "subtitles": ["Elements", "Compounds"], "keyword": "化学" },
-    { "categoryName": "Science", "name": "Physics", "subtitles": ["Matter", "Energy"], "keyword": "物理学" },
-    { "categoryName": "Science", "name": "Genetics", "subtitles": ["DNA", "Heredity"], "keyword": "遗传学" },
-    { "categoryName": "Science", "name": "Neuroscience", "subtitles": ["Brain", "Nervous System"], "keyword": "神经科学" },
-    { "categoryName": "Science", "name": "Ecology", "subtitles": ["Ecosystems", "Environment"], "keyword": "生态学" },
-    { "categoryName": "Science", "name": "Evolution", "subtitles": ["Darwin", "Natural Selection"], "keyword": "进化论" },
-    { "categoryName": "Science", "name": "Geology", "subtitles": ["Earth", "Rocks"], "keyword": "地质学" },
-    { "categoryName": "Science", "name": "Climatology", "subtitles": ["Weather", "Atmosphere"], "keyword": "气候学" },
-
-    { "categoryName": "Business", "name": "Entrepreneurship", "subtitles": ["Startups", "Venture"], "keyword": "创业精神" },
-    { "categoryName": "Business", "name": "Marketing", "subtitles": ["Promotion", "Advertising"], "keyword": "市场营销" },
-    { "categoryName": "Business", "name": "Leadership", "subtitles": ["Management", "Direction"], "keyword": "领导力" },
-    { "categoryName": "Business", "name": "E-commerce", "subtitles": ["Online Retail", "Digital Sales"], "keyword": "电子商务" },
-    { "categoryName": "Business", "name": "Finance", "subtitles": ["Money", "Investment"], "keyword": "金融" },
-    { "categoryName": "Business", "name": "Strategy", "subtitles": ["Planning", "Objectives"], "keyword": "战略" },
-    { "categoryName": "Business", "name": "Innovation", "subtitles": ["Creation", "New Ideas"], "keyword": "创新" },
-    { "categoryName": "Business", "name": "Supply Chain", "subtitles": ["Logistics", "Distribution"], "keyword": "供应链" },
-    { "categoryName": "Business", "name": "Human Resources", "subtitles": ["HR", "People Management"], "keyword": "人力资源" },
-    { "categoryName": "Business", "name": "Project Management", "subtitles": ["Organization", "Planning"], "keyword": "项目管理" },
-
-    { "categoryName": "Lifestyle", "name": "Fitness", "subtitles": ["Exercise", "Wellness"], "keyword": "健身" },
-    { "categoryName": "Lifestyle", "name": "Nutrition", "subtitles": ["Diet", "Health Food"], "keyword": "营养" },
-    { "categoryName": "Lifestyle", "name": "Travel", "subtitles": ["Adventure", "Exploration"], "keyword": "旅行" },
-    { "categoryName": "Lifestyle", "name": "Mindfulness", "subtitles": ["Meditation", "Awareness"], "keyword": "正念" },
-    { "categoryName": "Lifestyle", "name": "Fashion", "subtitles": ["Style", "Clothing"], "keyword": "时尚" },
-    { "categoryName": "Lifestyle", "name": "Cooking", "subtitles": ["Cuisine", "Recipes"], "keyword": "烹饪" },
-    { "categoryName": "Lifestyle", "name": "Interior Design", "subtitles": ["Decor", "Home"], "keyword": "室内设计" },
-    { "categoryName": "Lifestyle", "name": "Sustainability", "subtitles": ["Eco-friendly", "Green"], "keyword": "可持续性" },
-    { "categoryName": "Lifestyle", "name": "Photography", "subtitles": ["Camera", "Images"], "keyword": "摄影" },
-    { "categoryName": "Lifestyle", "name": "Digital Nomad", "subtitles": ["Remote Work", "Location Independent"], "keyword": "数字游民" }
+  "groups": [
+    {
+      "name": "Default Group",
+      "categories": [
+        {
+          "name": "Technology",
+          "tags": [
+            { "name": "Artificial Intelligence", "subtitles": ["AI", "Machine Learning"], "keyword": "人工智能" },
+            { "name": "Blockchain", "subtitles": ["Distributed Ledger", "Crypto"], "keyword": "区块链" },
+            { "name": "Cloud Computing", "subtitles": ["SaaS", "PaaS"], "keyword": "云计算" },
+            { "name": "Internet of Things", "subtitles": ["IoT", "Connected Devices"], "keyword": "物联网" },
+            { "name": "Virtual Reality", "subtitles": ["VR", "Immersive"], "keyword": "虚拟现实" },
+            { "name": "Augmented Reality", "subtitles": ["AR", "Mixed Reality"], "keyword": "增强现实" },
+            { "name": "Quantum Computing", "subtitles": ["Qubits", "Superposition"], "keyword": "量子计算" },
+            { "name": "Cybersecurity", "subtitles": ["Security", "Protection"], "keyword": "网络安全" },
+            { "name": "Big Data", "subtitles": ["Analytics", "Data Science"], "keyword": "大数据" },
+            { "name": "Robotics", "subtitles": ["Automation", "Mechanical"], "keyword": "机器人技术" }
+          ]
+        },
+        {
+          "name": "Art",
+          "tags": [
+            { "name": "Impressionism", "subtitles": ["Monet", "Light"], "keyword": "印象派" },
+            { "name": "Cubism", "subtitles": ["Picasso", "Geometric"], "keyword": "立体主义" },
+            { "name": "Surrealism", "subtitles": ["Dali", "Dreams"], "keyword": "超现实主义" },
+            { "name": "Renaissance", "subtitles": ["Da Vinci", "Rebirth"], "keyword": "文艺复兴" },
+            { "name": "Abstract", "subtitles": ["Non-representational", "Form"], "keyword": "抽象艺术" },
+            { "name": "Pop Art", "subtitles": ["Warhol", "Commercial"], "keyword": "波普艺术" },
+            { "name": "Minimalism", "subtitles": ["Simple", "Essential"], "keyword": "极简主义" },
+            { "name": "Photography", "subtitles": ["Camera", "Visual"], "keyword": "摄影" },
+            { "name": "Digital Art", "subtitles": ["Computer", "Pixels"], "keyword": "数字艺术" },
+            { "name": "Sculpture", "subtitles": ["3D", "Form"], "keyword": "雕塑" }
+          ]
+        },
+        {
+          "name": "Science",
+          "tags": [
+            { "name": "Astronomy", "subtitles": ["Stars", "Universe"], "keyword": "天文学" },
+            { "name": "Biology", "subtitles": ["Life", "Organisms"], "keyword": "生物学" },
+            { "name": "Chemistry", "subtitles": ["Elements", "Compounds"], "keyword": "化学" },
+            { "name": "Physics", "subtitles": ["Matter", "Energy"], "keyword": "物理学" },
+            { "name": "Genetics", "subtitles": ["DNA", "Heredity"], "keyword": "遗传学" },
+            { "name": "Neuroscience", "subtitles": ["Brain", "Nervous System"], "keyword": "神经科学" },
+            { "name": "Ecology", "subtitles": ["Ecosystems", "Environment"], "keyword": "生态学" },
+            { "name": "Evolution", "subtitles": ["Darwin", "Natural Selection"], "keyword": "进化论" },
+            { "name": "Geology", "subtitles": ["Earth", "Rocks"], "keyword": "地质学" },
+            { "name": "Climatology", "subtitles": ["Weather", "Atmosphere"], "keyword": "气候学" }
+          ]
+        },
+        {
+          "name": "Business",
+          "tags": [
+            { "name": "Entrepreneurship", "subtitles": ["Startups", "Venture"], "keyword": "创业精神" },
+            { "name": "Marketing", "subtitles": ["Promotion", "Advertising"], "keyword": "市场营销" },
+            { "name": "Leadership", "subtitles": ["Management", "Direction"], "keyword": "领导力" },
+            { "name": "E-commerce", "subtitles": ["Online Retail", "Digital Sales"], "keyword": "电子商务" },
+            { "name": "Finance", "subtitles": ["Money", "Investment"], "keyword": "金融" },
+            { "name": "Strategy", "subtitles": ["Planning", "Objectives"], "keyword": "战略" },
+            { "name": "Innovation", "subtitles": ["Creation", "New Ideas"], "keyword": "创新" },
+            { "name": "Supply Chain", "subtitles": ["Logistics", "Distribution"], "keyword": "供应链" },
+            { "name": "Human Resources", "subtitles": ["HR", "People Management"], "keyword": "人力资源" },
+            { "name": "Project Management", "subtitles": ["Organization", "Planning"], "keyword": "项目管理" }
+          ]
+        },
+        {
+          "name": "Lifestyle",
+          "tags": [
+            { "name": "Fitness", "subtitles": ["Exercise", "Wellness"], "keyword": "健身" },
+            { "name": "Nutrition", "subtitles": ["Diet", "Health Food"], "keyword": "营养" },
+            { "name": "Travel", "subtitles": ["Adventure", "Exploration"], "keyword": "旅行" },
+            { "name": "Mindfulness", "subtitles": ["Meditation", "Awareness"], "keyword": "正念" },
+            { "name": "Fashion", "subtitles": ["Style", "Clothing"], "keyword": "时尚" },
+            { "name": "Cooking", "subtitles": ["Cuisine", "Recipes"], "keyword": "烹饪" },
+            { "name": "Interior Design", "subtitles": ["Decor", "Home"], "keyword": "室内设计" },
+            { "name": "Sustainability", "subtitles": ["Eco-friendly", "Green"], "keyword": "可持续性" },
+            { "name": "Photography", "subtitles": ["Camera", "Images"], "keyword": "摄影" },
+            { "name": "Digital Nomad", "subtitles": ["Remote Work", "Location Independent"], "keyword": "数字游民" }
+          ]
+        }
+      ]
+    }
   ]
 } 

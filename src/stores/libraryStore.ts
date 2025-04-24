@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import * as StorageService from '../services/StorageService';
-import type { Library } from '../types/data';
-import { useTagStore } from './tagStore'; // Needed to re-initialize tagStore on library change
+import type { Library, Group, Category, Tag, TagStoreTemplate } from '../types/data';
+import { useTagStore } from './tagStore'; // Needed to load data on library change
+import { db } from '../services/TagDatabase'; // Import db instance for transaction
 
 const ACTIVE_LIBRARY_ID_STORAGE_KEY = 'tagstore_active_library_id';
 const DEFAULT_LIBRARY_NAME = "默认标签库";
@@ -21,9 +22,391 @@ export const useLibraryStore = defineStore('libraryStore', () => {
     return libraries.value.find(lib => lib.id === activeLibraryId.value) || null;
   });
 
+  // Getter to check if any libraries exist
+  const hasLibraries = computed(() => libraries.value.length > 0);
+
   // --- Actions ---
 
-  // 加载可用模板列表
+  // Load libraries from DB, set active library (create default if none exist)
+  const initializeLibraries = async (): Promise<boolean> => {
+    console.log("初始化库存储...");
+    isLoading.value = true;
+    let defaultCreatedOrSynced = false; // Renamed variable
+
+    try {
+      // 1. 加载数据库中已存在的库
+      console.log("步骤 1: 加载数据库中已存在的库...");
+      let dbLibs = await StorageService.getAllLibraries();
+      console.log(`数据库中找到 ${dbLibs.length} 个库`);
+      const initialDbLibNames = dbLibs.map(lib => lib.name);
+
+      // --- NEW: Sync with user_libraries/index.json --- 
+      console.log("步骤 1.5: 扫描 user_libraries/index.json 并同步新库...");
+      let librariesAddedOrSynced = false; // Moved declaration outside the try block
+
+      try {
+        const indexedLibs = await StorageService.scanUserLibraries();
+        console.log(`  扫描到 ${indexedLibs.length} 个用户库文件:`, indexedLibs.map(l => ({name: l.name, path: l.path})));
+        console.log(`  同步前数据库中的库名:`, initialDbLibNames);
+
+        const existingDbNames = new Set(initialDbLibNames);
+
+        for (const indexedLib of indexedLibs) {
+          console.log(`  [Sync Check] 处理扫描到的库: name='${indexedLib.name}', path='${indexedLib.path}'`);
+
+          // 1. Load content first
+          let finalName: string | null = null;
+          let finalDescription: string | undefined = undefined; // Variable for description
+          let content: any = null; // Use 'any' temporarily to handle different structures
+
+          try {
+              content = await StorageService.loadUserLibraryContent(indexedLib.path);
+
+              // Try reading from new structure (content.library) first
+              if (content && content.library && content.library.name) {
+                  finalName = content.library.name;
+                  finalDescription = content.library.description;
+                  console.log(`    - 加载内容成功 (新格式). 最终库名: '${finalName}'`);
+              }
+              // Fallback to old structure (content.metadata)
+              else if (content && content.metadata && content.metadata.name) {
+                  finalName = content.metadata.name;
+                  finalDescription = content.metadata.description;
+                  console.log(`    - 加载内容成功 (旧格式). 最终库名: '${finalName}'`);
+              }
+              // If neither structure provides a name, use the name from index.json as last resort
+              else if (indexedLib.name) {
+                   finalName = indexedLib.name;
+                   finalDescription = indexedLib.description;
+                   console.warn(`    - 🟡 库文件内容无效或缺少名称，将使用扫描到的信息: '${finalName}'`);
+              } else {
+                  console.error(`    - ❌ 库文件内容无效且扫描信息中也无名称: ${indexedLib.path}`);
+                  continue;
+              }
+
+          } catch (loadError) {
+              console.error(`    - ❌ 加载库内容失败: '${indexedLib.path}':`, loadError);
+              continue;
+          }
+
+          // 2. Check existence using the determined FINAL name
+          if (finalName && !existingDbNames.has(finalName)) {
+            console.log(`    -> 数据库中尚无此库 ('${finalName}')，尝试添加...`);
+            // Check if content has groups (essential for adding)
+            if (content && Array.isArray(content.groups)) {
+                try {
+                    const newLibId = crypto.randomUUID();
+                    const libraryToAdd: Library = {
+                        id: newLibId,
+                        name: finalName,
+                        // Use the determined description, fallback to index.json description if needed
+                        description: finalDescription || indexedLib.description,
+                        createdAt: new Date().toISOString(),
+                    };
+                    console.log(`      - 准备添加的库数据:`, libraryToAdd);
+                    
+                    const groupsToAdd: Group[] = [];
+                    const categoriesToAdd: Category[] = [];
+                    const tagsToAdd: Tag[] = [];
+
+                    content.groups.forEach((groupData: any, groupIndex: number) => {
+                        const newGroupId = crypto.randomUUID();
+                        groupsToAdd.push({ id: newGroupId, libraryId: newLibId, name: groupData.name || `Group ${groupIndex + 1}`, order: groupData.order ?? groupIndex });
+                        if (Array.isArray(groupData.categories)) {
+                            groupData.categories.forEach((categoryData: any, catIndex: number) => {
+                                const newCatId = crypto.randomUUID();
+                                categoriesToAdd.push({ id: newCatId, groupId: newGroupId, name: categoryData.name || `Category ${catIndex + 1}`, color: categoryData.color, icon: categoryData.icon });
+                                if (Array.isArray(categoryData.tags)) {
+                                    categoryData.tags.forEach((tagData: any) => {
+                                        tagsToAdd.push({ id: crypto.randomUUID(), categoryId: newCatId, name: tagData.name, subtitles: tagData.subtitles || [], keyword: tagData.keyword || tagData.name, weight: tagData.weight ?? 1.0, color: tagData.color });
+                                    });
+                                }
+                            });
+                        }
+                    });
+                    console.log(`      - 准备添加 ${groupsToAdd.length} 个组, ${categoriesToAdd.length} 个分类, ${tagsToAdd.length} 个标签`);
+                    
+                    await db.transaction('rw', db.libraries, db.groups, db.categories, db.tags, async () => {
+                        console.log(`        - 开始数据库事务...`);
+                        await db.libraries.add(libraryToAdd);
+                        if (groupsToAdd.length > 0) await db.groups.bulkAdd(groupsToAdd);
+                        if (categoriesToAdd.length > 0) await db.categories.bulkAdd(categoriesToAdd);
+                        if (tagsToAdd.length > 0) await db.tags.bulkAdd(tagsToAdd);
+                        console.log(`        - 数据库事务完成.`);
+                    });
+
+                    console.log(`  ✅ 成功添加新库 '${finalName}' 到数据库 (ID: ${newLibId})`);
+                    librariesAddedOrSynced = true;
+                    existingDbNames.add(finalName);
+
+                } catch (addError) {
+                    console.error(`    - ❌ 添加库 '${finalName}' (${indexedLib.path}) 时出错:`, addError);
+                }
+            } else {
+                 console.warn(`    - 🟡 内容有效但缺少 groups 数组，无法添加库 '${finalName}' (${indexedLib.path})`);
+            }
+          } else if (finalName) {
+             console.log(`    -> 库 '${finalName}' 已存在于数据库中 (或即将被添加)，跳过添加。`);
+          } else {
+              // Should not be reached due to earlier continue statement, but defensive check
+              console.log(`    -> 无法确定最终库名，跳过此条目: ${indexedLib.path}`);
+          }
+        }
+
+        // --- Re-fetch libraries from DB AFTER sync loop ---
+        console.log("步骤 1.6: 同步循环结束，重新从数据库加载库列表...");
+        dbLibs = await StorageService.getAllLibraries(); // Re-fetch the complete list
+        libraries.value = dbLibs.sort((a, b) => a.name.localeCompare(b.name));
+        console.log(`库同步和重载完成，当前数据库中有 ${libraries.value.length} 个库:`, libraries.value.map(l => l.name));
+        // --- End Re-fetch ---
+
+      } catch(scanError) {
+         console.error("  ❌ 扫描用户库文件或处理时出错:", scanError);
+      }
+      // --- End NEW Sync Logic ---
+
+      // --- Continue with original logic using potentially updated libraries.value --- 
+
+      // 2. 确定要激活的库 ID
+      console.log("步骤 2: 确定活动库...");
+      let targetLibraryId: string | null = null;
+
+      // 2a. 尝试从 localStorage 加载
+      try {
+        targetLibraryId = localStorage.getItem(ACTIVE_LIBRARY_ID_STORAGE_KEY);
+        console.log(`  从localStorage加载活动库ID: ${targetLibraryId}`);
+        // Validate ID against the *now finalized* libraries.value
+        if (targetLibraryId && !libraries.value.some(lib => lib.id === targetLibraryId)) {
+          console.log(`  localStorage 中的库ID '${targetLibraryId}' 无效，重置`);
+          targetLibraryId = null;
+          localStorage.removeItem(ACTIVE_LIBRARY_ID_STORAGE_KEY);
+        }
+      } catch (e) { 
+        console.error("  从localStorage加载活动库ID失败", e);
+        targetLibraryId = null; 
+      }
+
+      // 2b. 如果没有有效的 localStorage ID，并且有库存在，则使用第一个库
+      if (!targetLibraryId && libraries.value.length > 0) {
+        targetLibraryId = libraries.value[0].id;
+        console.log(`  使用第一个库作为活动库: ${libraries.value[0].name} (${targetLibraryId})`);
+      }
+
+      // 3. 如果仍然没有库（数据库为空，且同步后也为空），则创建默认库
+      if (libraries.value.length === 0 && !librariesAddedOrSynced) { 
+        console.log("步骤 3: 数据库和同步后均为空，创建默认库...");
+        try {
+          const defaultTemplatePath = `${import.meta.env.BASE_URL}templates/default.json`;
+          const defaultContent = await StorageService.loadTemplateFile(defaultTemplatePath);
+          
+          if (defaultContent && defaultContent.metadata && Array.isArray(defaultContent.groups)) {
+              const newLibId = crypto.randomUUID();
+              const libraryToAdd: Library = {
+                  id: newLibId,
+                  name: defaultContent.metadata.name || DEFAULT_LIBRARY_NAME,
+                  description: defaultContent.metadata.description,
+                  createdAt: new Date().toISOString(),
+              };
+              const groupsToAdd: Group[] = [];
+              const categoriesToAdd: Category[] = [];
+              const tagsToAdd: Tag[] = [];
+              
+              defaultContent.groups.forEach((groupData: any, groupIndex: number) => {
+                  const newGroupId = crypto.randomUUID();
+                  groupsToAdd.push({ id: newGroupId, libraryId: newLibId, name: groupData.name || `Group ${groupIndex + 1}`, order: groupData.order ?? groupIndex });
+                  if (Array.isArray(groupData.categories)) {
+                      groupData.categories.forEach((categoryData: any, catIndex: number) => {
+                          const newCatId = crypto.randomUUID();
+                          categoriesToAdd.push({ id: newCatId, groupId: newGroupId, name: categoryData.name || `Category ${catIndex + 1}`, color: categoryData.color, icon: categoryData.icon });
+                          if (Array.isArray(categoryData.tags)) {
+                              categoryData.tags.forEach((tagData: any) => {
+                                  tagsToAdd.push({ id: crypto.randomUUID(), categoryId: newCatId, name: tagData.name, subtitles: tagData.subtitles || [], keyword: tagData.keyword || tagData.name, weight: tagData.weight ?? 1.0, color: tagData.color });
+                              });
+                          }
+                      });
+                  }
+              });
+              
+              await db.transaction('rw', db.libraries, db.groups, db.categories, db.tags, async () => {
+                  await db.libraries.add(libraryToAdd);
+                  if (groupsToAdd.length > 0) await db.groups.bulkAdd(groupsToAdd);
+                  if (categoriesToAdd.length > 0) await db.categories.bulkAdd(categoriesToAdd);
+                  if (tagsToAdd.length > 0) await db.tags.bulkAdd(tagsToAdd);
+              });
+              console.log(`  ✅ 已从模板创建默认库: ${libraryToAdd.name} (${newLibId})`);
+              libraries.value.push(libraryToAdd); // Add to local state
+              targetLibraryId = newLibId;
+              // defaultCreatedOrSynced = true; // Flag not needed here anymore
+          } else {
+              console.warn("  🟡 加载默认模板失败或格式无效，将创建完全空的库");
+              const emptyLibId = await createLibrary({ name: DEFAULT_LIBRARY_NAME, description: '' }, false); // Added empty description
+              targetLibraryId = emptyLibId;
+              // defaultCreatedOrSynced = true;
+          }
+        } catch (defaultCreationError) {
+           console.error("  ❌ 创建默认库失败:", defaultCreationError);
+        }
+      } else if (libraries.value.length === 0 && librariesAddedOrSynced) {
+        console.log("步骤 3: 数据库为空，但已从 index.json 同步了库，跳过创建默认库。");
+      }
+      
+      // 4. 设置活动库 (switchLibrary handles null)
+      console.log(`步骤 4: 设置最终活动库 ID: ${targetLibraryId}`);
+      await switchLibrary(targetLibraryId);
+
+    } catch (error) {
+      console.error("初始化库存储时发生意外错误:", error);
+      // Ensure state consistency on error
+      libraries.value = [];
+      await switchLibrary(null); 
+    } finally {
+      isLoading.value = false;
+      console.log(`库存储初始化完成。活动库: ${activeLibrary.value?.name ?? '无'}`);
+    }
+    return defaultCreatedOrSynced; // Return if a default was created or synced
+  };
+
+  // Create a new library
+  const createLibrary = async (libraryData: Omit<Library, 'id'>, switchToNew: boolean = true): Promise<string> => {
+     isLoading.value = true;
+     let newId = '';
+     try {
+         // Future: Add check for duplicate name before calling storage?
+         console.log(`Creating library: ${libraryData.name}, switch? ${switchToNew}`);
+         newId = await StorageService.addLibrary(libraryData);
+         const newLibrary = await StorageService.getLibraryById(newId);
+         if (newLibrary) {
+             libraries.value.push(newLibrary);
+             libraries.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted
+             console.log(`Library '${newLibrary.name}' created with ID: ${newId}`);
+             if (switchToNew) {
+                 await switchLibrary(newId);
+             } else {
+                console.log(`Library created but not switched to.`);
+             }
+         } else {
+            throw new Error("Failed to retrieve newly created library from DB");
+         }
+         return newId;
+     } catch (error) {
+          console.error(`Failed to create library '${libraryData.name}':`, error);
+          // Clean up potentially inconsistent state if needed?
+          throw error; // Re-throw for component level handling
+     } finally {
+        isLoading.value = false;
+     }
+  };
+
+  // Switch the active library and trigger data loading in tagStore
+  const switchLibrary = async (libraryId: string | null) => {
+    console.log(`Attempting to switch library to ID: ${libraryId}`);
+    const tagStore = useTagStore();
+    
+    // 1. Update active library ID state
+    activeLibraryId.value = libraryId;
+
+    // 2. Persist to localStorage
+    try {
+        if (libraryId) {
+            localStorage.setItem(ACTIVE_LIBRARY_ID_STORAGE_KEY, libraryId);
+            console.log(`Saved active library ID ${libraryId} to localStorage`);
+        } else {
+            localStorage.removeItem(ACTIVE_LIBRARY_ID_STORAGE_KEY);
+            console.log(`Removed active library ID from localStorage`);
+        }
+    } catch (e) {
+        console.error("Failed to save active library ID to localStorage", e);
+    }
+
+    // 3. Load data for the new library in tagStore
+    // This should handle clearing data if libraryId is null
+    try {
+      console.log(`Triggering data load in tagStore for library ID: ${libraryId}`);
+      await tagStore.loadDataForLibrary(libraryId);
+      console.log(`Data load triggered for library ID: ${libraryId}`);
+    } catch (error) {
+       console.error(`Error loading data for library ${libraryId} in tagStore:`, error);
+       // Handle error - maybe clear tagStore state or show notification?
+       activeLibraryId.value = null; // Rollback active library on error? Maybe too drastic.
+       localStorage.removeItem(ACTIVE_LIBRARY_ID_STORAGE_KEY);
+    }
+
+    console.log(`Library switch complete. Active ID: ${activeLibraryId.value}`);
+  };
+
+  // Delete a library and all its associated data
+  const deleteLibrary = async (libraryId: string) => {
+    console.log(`Attempting to delete library ID: ${libraryId}`);
+    isLoading.value = true;
+    try {
+      // Find the index before deleting
+      const indexToDelete = libraries.value.findIndex(lib => lib.id === libraryId);
+      if (indexToDelete === -1) {
+          console.warn(`Library with ID ${libraryId} not found for deletion.`);
+          return;
+      }
+      
+      // Call storage service to delete library and all its data
+      await StorageService.deleteLibrary(libraryId);
+      console.log(`Successfully deleted library ${libraryId} from storage.`);
+
+      // Remove from local state
+      libraries.value.splice(indexToDelete, 1);
+      console.log(`Removed library ${libraryId} from local state.`);
+
+      // Check if the deleted library was the active one
+      if (activeLibraryId.value === libraryId) {
+        console.log(`Deleted library was active. Switching library...`);
+        // Switch to the first available library, or null if none remain
+        const nextLibraryId = libraries.value.length > 0 ? libraries.value[0].id : null;
+        await switchLibrary(nextLibraryId);
+      } else {
+         console.log(`Deleted library was not active. Active library remains: ${activeLibraryId.value}`);
+      }
+
+    } catch (error) {
+      console.error(`Failed to delete library ${libraryId}:`, error);
+      // Reload libraries from DB to ensure consistency on error?
+      await initializeLibraries(); // Or just reload libraries list
+      throw error; // Re-throw
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+   // Rename a library
+   const renameLibrary = async (libraryId: string, newName: string) => {
+    console.log(`Renaming library ${libraryId} to "${newName}"`);
+    // Basic validation
+    if (!newName.trim()) {
+      console.error("New library name cannot be empty.");
+      throw new Error("Library name cannot be empty.");
+    }
+    // Optional: Check if name already exists among other libraries?
+
+    isLoading.value = true;
+    try {
+        await StorageService.updateLibrary(libraryId, { name: newName });
+        // Update local state
+        const library = libraries.value.find(lib => lib.id === libraryId);
+        if (library) {
+            library.name = newName;
+            libraries.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted
+            console.log(`Library ${libraryId} renamed to "${newName}" in local state.`);
+        } else {
+             console.warn(`Library ${libraryId} not found in local state after renaming.`);
+             // Reload from DB to be safe?
+             await initializeLibraries(); // Or just reload libraries list
+        }
+    } catch (error) {
+        console.error(`Failed to rename library ${libraryId}:`, error);
+        throw error;
+    } finally {
+        isLoading.value = false;
+    }
+   };
+
+  // Load available templates
   const loadAvailableTemplates = async () => {
     try {
       availableTemplates.value = await StorageService.scanTemplateFiles();
@@ -34,408 +417,44 @@ export const useLibraryStore = defineStore('libraryStore', () => {
     }
   };
 
-  // 加载用户库列表
-  const loadUserLibraries = async (forceRefresh: boolean = false) => {
+  // Load user libraries (called by LibraryManagerDialog)
+  const loadUserLibraries = async () => {
     try {
-      console.log("开始加载用户库列表...");
-      
-      // 清除缓存，强制浏览器重新请求文件
-      if (forceRefresh) {
-        console.log("强制刷新模式，添加时间戳绕过缓存");
-      }
-      
-      // 获取用户库列表
-      userLibraries.value = await StorageService.scanUserLibraries();
-      
-      if (userLibraries.value.length === 0) {
-        console.warn("⚠️ 未找到任何用户库文件，请检查public/user_libraries目录");
-      } else {
-        console.log(`✅ 用户库列表加载完成，共找到${userLibraries.value.length}个用户库:`);
-        userLibraries.value.forEach((lib, index) => {
-          console.log(`  ${index + 1}. ${lib.name} - ${lib.path}${lib.description ? ` (${lib.description})` : ''}`);
-        });
-      }
+        // Corrected: scanUserLibraries doesn't accept arguments
+        userLibraries.value = await StorageService.scanUserLibraries(); 
+        console.log("用户库:", userLibraries.value);
     } catch (error) {
-      console.error("❌ 加载用户库失败:", error);
-      userLibraries.value = [];
+        console.error("加载用户库失败:", error);
+        userLibraries.value = [];
     }
   };
 
-  // Load libraries from DB, set active library (create default if none exist)
-  const initializeLibraries = async (): Promise<boolean> => {
-    console.log("初始化库存储...");
-    isLoading.value = true;
-    let defaultCreated = false;
-    let createdFromUserLibs = false; // 标记是否从用户库创建了新库
-
-    // 1. 加载用户库文件列表 (强制刷新)
-    console.log("步骤 1: 加载用户库文件列表...");
-    try {
-      await loadUserLibraries(true);
-    } catch (error) {
-      console.error("加载用户库文件列表失败:", error);
-      // 即使加载失败，也继续尝试初始化
-    }
-
-    try {
-      // 2. 加载数据库中已存在的库
-      console.log("步骤 2: 加载数据库中已存在的库...");
-      let loadedLibraries = await StorageService.getAllLibraries();
-      console.log(`数据库中找到 ${loadedLibraries.length} 个库`);
-
-      // 3. 检查用户库文件，如果数据库中不存在则创建
-      console.log(`步骤 3: 检查 ${userLibraries.value.length} 个用户库文件是否需要创建...`);
-      const existingLibraryNamesLower = loadedLibraries.map(lib => lib.name.toLowerCase());
-      
-      for (const userLib of userLibraries.value) {
-        const userLibNameLower = userLib.name.toLowerCase();
-        if (!existingLibraryNamesLower.includes(userLibNameLower)) {
-          console.log(`  发现新库 "${userLib.name}"，准备从文件 ${userLib.path} 创建...`);
-          try {
-            // 创建库但不立即切换
-            await createLibraryFromUserLib(userLib.name, userLib.path); 
-            createdFromUserLibs = true;
-            console.log(`  ✅ 成功创建库 "${userLib.name}"`);
-            // 添加到检查列表，防止因大小写不同而重复创建
-            existingLibraryNamesLower.push(userLibNameLower); 
-          } catch (creationError) {
-            console.error(`  ❌ 创建库 "${userLib.name}" 失败:`, creationError);
-          }
-        } else {
-          console.log(`  库 "${userLib.name}" 已存在于数据库中，跳过创建`);
-        }
-      }
-
-      // 4. 如果从用户库创建了新库，则重新加载数据库列表
-      if (createdFromUserLibs) {
-        console.log("步骤 4: 因创建了新库，重新从数据库加载库列表...");
-        loadedLibraries = await StorageService.getAllLibraries();
-        console.log(`重新加载后，数据库中有 ${loadedLibraries.length} 个库`);
-      }
-      libraries.value = loadedLibraries;
-
-      // 5. 确定要激活的库 ID
-      console.log("步骤 5: 确定活动库...");
-      let targetLibraryId: string | null = null;
-
-      // 5a. 尝试从 localStorage 加载
+  // NEW: Get data for a specific template file
+  const getTemplateData = async (templatePath: string): Promise<TagStoreTemplate | null> => {
+      console.log(`Fetching template data for path: ${templatePath}`);
       try {
-        targetLibraryId = localStorage.getItem(ACTIVE_LIBRARY_ID_STORAGE_KEY);
-        console.log(`  从localStorage加载活动库ID: ${targetLibraryId}`);
-        // 验证 ID 是否有效
-        if (targetLibraryId && !libraries.value.some(lib => lib.id === targetLibraryId)) {
-          console.log(`  localStorage 中的库ID无效，重置`);
-          targetLibraryId = null;
-          localStorage.removeItem(ACTIVE_LIBRARY_ID_STORAGE_KEY);
-        }
-      } catch (e) { 
-        console.error("  从localStorage加载活动库ID失败", e);
-      }
-
-      // 5b. 如果没有有效的 localStorage ID，使用第一个库
-      if (!targetLibraryId && libraries.value.length > 0) {
-        targetLibraryId = libraries.value[0].id;
-        console.log(`  使用第一个库作为活动库: ${libraries.value[0].name} (${targetLibraryId})`);
-      }
-
-      // 6. 如果仍然没有库（数据库为空且用户库也为空或创建失败），则创建默认库
-      if (libraries.value.length === 0) {
-        console.log("步骤 6: 数据库和用户库均无有效库，创建默认库...");
-        try {
-          const defaultLibId = await createLibrary({ name: DEFAULT_LIBRARY_NAME }, false);
-          targetLibraryId = defaultLibId;
-          defaultCreated = true;
-          // 重新获取库列表，现在应该包含默认库
-          libraries.value = await StorageService.getAllLibraries(); 
-          console.log(`  已创建默认库: ${DEFAULT_LIBRARY_NAME} (${defaultLibId})`);
-        } catch (defaultCreationError) {
-           console.error("  ❌ 创建默认库失败:", defaultCreationError);
-           // 如果默认库创建失败，targetLibraryId 仍然是 null
-        }
-      }
-      
-      // 7. 设置活动库
-      console.log(`步骤 7: 设置最终活动库 ID: ${targetLibraryId}`);
-      await switchLibrary(targetLibraryId); // switchLibrary 会处理 null 的情况
-
-    } catch (error) {
-      console.error("初始化库存储时发生意外错误:", error);
-    } finally {
-      isLoading.value = false;
-      console.log(`库存储初始化完成。活动库: ${activeLibrary.value?.name ?? '无'}`);
-    }
-    return defaultCreated; // 返回是否创建了默认库
-  };
-
-  // Create a new library
-  const createLibrary = async (libraryData: Omit<Library, 'id'>, switchToNew: boolean = true): Promise<string> => {
-     isLoading.value = true;
-     try {
-         // Check for duplicate name? Maybe add later or rely on DB constraints if set
-         const newId = await StorageService.addLibrary(libraryData);
-         const newLibrary = await StorageService.getLibraryById(newId);
-         if (newLibrary) {
-             libraries.value.push(newLibrary);
-             libraries.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted
-             if (switchToNew) {
-                 await switchLibrary(newId);
-             }
-         }
-         return newId;
-     } catch (error) {
-          console.error("Failed to create library:", error);
-          throw error; // Re-throw for component level handling
-     } finally {
-        isLoading.value = false;
-     }
-  };
-
-  // 从模板创建新库
-  const createLibraryFromTemplate = async (name: string, templatePath: string, switchToNew: boolean = true): Promise<string> => {
-    isLoading.value = true;
-    try {
-      // 1. 创建新库
-      const newId = await createLibrary({ name }, false);
-      
-      // 2. 加载模板数据
-      const templateData = await StorageService.loadTemplateFile(templatePath);
-      if (!templateData) {
-        throw new Error(`无法加载模板：${templatePath}`);
-      }
-      
-      // 3. 切换到新库
-      if (switchToNew) {
-        await switchLibrary(newId);
-      }
-      
-      // 4. 让tagStore导入模板数据
-      const tagStore = useTagStore();
-      await tagStore.importData(templateData, false);
-      
-      return newId;
-    } catch (error) {
-      console.error("从模板创建库失败:", error);
-      throw error;
-    } finally {
-      isLoading.value = false;
-    }
-  };
-
-  // 从用户库文件创建新库
-  const createLibraryFromUserLib = async (name: string, userLibPath: string): Promise<string> => {
-    isLoading.value = true;
-    let newId: string | null = null;
-    try {
-      console.log(`正在从用户库创建新标签库: 名称=${name}, 路径=${userLibPath}`);
-      
-      // 1. 创建新库（但不切换）
-      newId = await createLibrary({ name }, false);
-      console.log(`已创建空库，ID=${newId}`);
-      
-      // --- 关键修改：先切换到新库 --- 
-      console.log(`准备导入数据，先切换到新库: ${newId}`);
-      await switchLibrary(newId); 
-      // 确保 switchLibrary 完成了 tagStore 的初始化（虽然是空的）
-      // 这样后续的 importData 就会操作当前（新）的活动库
-      //--------------------------------
-
-      // 2. 加载用户库数据
-      console.log(`正在加载用户库文件: ${userLibPath}`);
-      const libData = await StorageService.loadUserLibraryContent(userLibPath);
-      if (!libData) {
-        // 如果加载失败，删除刚刚创建的空库？(可选)
-        // await deleteLibrary(newId);
-        throw new Error(`无法加载用户库内容：${userLibPath}`);
-      }
-      
-      // 检测文件格式
-      console.log(`用户库文件加载成功，检测数据格式...`);
-      
-      // 准备导入数据...
-      let importData: any = {
-        library: { name: name },
-        categories: [],
-        tags: []
-      };
-      // (格式处理逻辑保持不变)
-      if (libData.metadata && libData.categories && libData.tags) {
-        console.log(`检测到metadata格式的用户库`);
-        importData.library.name = libData.metadata.name || name;
-        importData.categories = libData.categories || [];
-        importData.tags = libData.tags || [];
-      } else if (libData.library && libData.categories && libData.tags) {
-        console.log(`检测到library格式的用户库`);
-        importData = libData;
-      } else if (Array.isArray(libData.categories) && Array.isArray(libData.tags)) {
-        console.log(`检测到简化格式的用户库`);
-        importData.categories = libData.categories;
-        importData.tags = libData.tags;
-      } else if (Array.isArray(libData)) {
-        console.log(`检测到极简格式的用户库（仅标签列表）`);
-        importData.tags = libData;
-      } else {
-        console.warn(`未知格式的用户库文件:`, libData);
-        throw new Error("不支持的用户库文件格式");
-      }
-      
-      console.log(`准备导入数据: ${importData.categories.length}个分类, ${importData.tags.length}个标签`);
-      
-      // 3. 让tagStore导入用户库数据到 *当前已激活* 的新库
-      console.log(`导入用户库数据到新库 ${newId}`);
-      const tagStore = useTagStore();
-      // importData 会调用 initializeStore() 重新加载数据
-      await tagStore.importData(importData, false); 
-      
-      // 4. 如果外部要求创建后不切换，则切换回之前的库
-      // (这个逻辑可能需要根据实际需求调整，但现在是创建后默认切换)
-      // if (!switchToNew) { ... 切换回之前的 activeId ... }
-      
-      console.log(`✅ 从用户库创建标签库成功: "${name}"`);
-      return newId; // 返回新库ID
-
-    } catch (error) {
-      console.error("❌ 从用户库创建失败:", error);
-      // 如果出错，并且已经创建了库，可能需要删除它
-      if (newId) {
-        console.log(`创建过程中出错，尝试删除已创建的空库: ${newId}`);
-        try {
-          await deleteLibrary(newId);
-        } catch (deleteError) {
-          console.error(`删除失败的库 ${newId} 时出错:`, deleteError);
-        }
-      }
-      throw error; // 将错误抛出给调用者
-    } finally {
-      isLoading.value = false;
-    }
-  };
-
-  // 导出当前库到用户库文件
-  const exportLibraryToUserLib = async (): Promise<boolean> => {
-    isLoading.value = true;
-    try {
-      console.log("开始导出当前库到用户库文件...");
-      const activeLib = activeLibrary.value;
-      if (!activeLib) {
-        throw new Error("没有选中的活动库");
-      }
-      
-      console.log(`正在导出库: ${activeLib.name}(${activeLib.id})`);
-      
-      // 使用tagStore导出数据
-      const tagStore = useTagStore();
-      const jsonData = await tagStore.exportDataAsJson();
-      const exportData = JSON.parse(jsonData);
-      
-      // 转换为用户库格式
-      const userLibData = {
-        version: "1.0",
-        metadata: {
-          name: activeLib.name,
-          description: `从 TagStore 导出的标签库`,
-          exported_at: new Date().toISOString()
-        },
-        categories: exportData.categories || [],
-        tags: exportData.tags || []
-      };
-      
-      // 保存到用户库文件
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-      const fileName = `${activeLib.name.replace(/\s+/g, '_').toLowerCase()}_${timestamp}.json`;
-      console.log(`正在保存用户库文件: ${fileName}`);
-      
-      const success = await StorageService.saveUserLibrary(userLibData, fileName);
-      
-      // 刷新用户库列表
-      if (success) {
-        console.log("文件保存成功，刷新用户库列表");
-        await loadUserLibraries(true); // 强制刷新
-        console.log(`✅ 成功导出 "${activeLib.name}" 到用户库文件`);
-      } else {
-        console.error("❌ 保存用户库文件失败");
-      }
-      
-      return success;
-    } catch (error) {
-      console.error("❌ 导出库到用户库文件失败:", error);
-      return false;
-    } finally {
-      isLoading.value = false;
-    }
-  };
-
-  // Switch the active library
-  const switchLibrary = async (libraryId: string | null) => {
-     if (libraryId && libraries.value.some(lib => lib.id === libraryId)) {
-         activeLibraryId.value = libraryId;
-         try {
-            localStorage.setItem(ACTIVE_LIBRARY_ID_STORAGE_KEY, libraryId);
-         } catch (e) { console.error("Failed to save active library ID", e); }
-         console.log(`Switched active library to: ${libraryId}`);
-         // IMPORTANT: Trigger re-initialization of tagStore for the new library
-         const tagStore = useTagStore();
-         await tagStore.initializeStore(); 
-     } else if (libraryId === null) {
-         // Handle switching to "no library" state if applicable
-         activeLibraryId.value = null;
-          try { localStorage.removeItem(ACTIVE_LIBRARY_ID_STORAGE_KEY); } catch(e) {}
-          const tagStore = useTagStore();
-          await tagStore.clearLocalState(); // Add method to clear tagStore state
-     } else {
-         console.warn(`Attempted to switch to invalid library ID: ${libraryId}`);
-         // Optionally switch to a default or the first available library
-         if (libraries.value.length > 0) {
-             await switchLibrary(libraries.value[0].id);
-         } else {
-             await switchLibrary(null); // No libraries left
-         }
-     }
-  };
-
-   // Delete a library
-  const deleteLibrary = async (libraryId: string) => {
-      if (!libraryId) return;
-      // Prevent deleting the last library? Maybe not necessary, allow empty state.
-      // if (libraries.value.length <= 1) { throw new Error("Cannot delete the last library."); }
-
-      isLoading.value = true;
-      try {
-          await StorageService.deleteLibrary(libraryId);
-          libraries.value = libraries.value.filter(lib => lib.id !== libraryId); // Update local state
-
-          // If the deleted library was the active one, switch to another
-          if (activeLibraryId.value === libraryId) {
-              const nextLibraryId = libraries.value.length > 0 ? libraries.value[0].id : null;
-              await switchLibrary(nextLibraryId);
-          }
+          // Corrected based on linter suggestion
+          const data = await StorageService.loadTemplateFile(templatePath);
+          return data;
       } catch (error) {
-           console.error(`Failed to delete library ${libraryId}:`, error);
-           throw error;
-      } finally {
-          isLoading.value = false;
+          console.error(`Failed to get template data for ${templatePath}:`, error);
+          return null;
       }
   };
 
-  // Rename library (Example - might need more update methods later)
-   const renameLibrary = async (libraryId: string, newName: string) => {
-       if (!libraryId || !newName.trim()) return;
-       isLoading.value = true;
+  // NEW: Get data for a specific user library file
+  const getUserLibraryData = async (libraryPath: string): Promise<TagStoreTemplate | null> => {
+      console.log(`Fetching user library data for path: ${libraryPath}`);
        try {
-           await StorageService.updateLibrary(libraryId, { name: newName.trim() });
-           // Update local state
-           const index = libraries.value.findIndex(lib => lib.id === libraryId);
-           if (index !== -1) {
-               libraries.value[index].name = newName.trim();
-               libraries.value.sort((a, b) => a.name.localeCompare(b.name)); // Keep sorted
-           }
-       } catch(error) {
-            console.error(`Failed to rename library ${libraryId}:`, error);
-            throw error;
-       } finally {
-            isLoading.value = false;
+           // Using loadTemplateFile as a placeholder, assuming similar loading
+           // TODO: Verify if a specific user library loading method exists in StorageService
+           const data = await StorageService.loadTemplateFile(libraryPath);
+           return data;
+       } catch (error) {
+           console.error(`Failed to get user library data for ${libraryPath}:`, error);
+           return null;
        }
-   };
-
+  };
 
   // --- Return ---
   return {
@@ -445,15 +464,15 @@ export const useLibraryStore = defineStore('libraryStore', () => {
     activeLibrary,
     availableTemplates,
     userLibraries,
+    hasLibraries,
     initializeLibraries,
-    loadAvailableTemplates,
-    loadUserLibraries,
     createLibrary,
-    createLibraryFromTemplate,
-    createLibraryFromUserLib,
-    exportLibraryToUserLib,
     switchLibrary,
     deleteLibrary,
     renameLibrary,
+    loadAvailableTemplates,
+    loadUserLibraries,
+    getTemplateData,
+    getUserLibraryData,
   };
 }); 

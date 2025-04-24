@@ -4,46 +4,65 @@
     "name": "默认示例库",
     "description": "一个包含多种分类的通用标签库示例。"
   },
-  "categories": [
-    { "name": "科技" },
-    { "name": "艺术历史" },
-    { "name": "自然" },
-    { "name": "设计原则" },
-    { "name": "创意方法" }
-  ],
-  "tags": [
-    { "categoryName": "科技", "name": "人工智能", "subtitles": ["计算机领域", "AI"], "keyword": "Artificial Intelligence" },
-    { "categoryName": "科技", "name": "虚拟现实", "subtitles": ["VR技术", "交互体验"], "keyword": "Virtual Reality" },
-    { "categoryName": "科技", "name": "区块链", "subtitles": ["分布式技术", "加密货币"], "keyword": "Blockchain" },
-    { "categoryName": "科技", "name": "物联网", "subtitles": ["智能连接", "设备互联"], "keyword": "IoT" },
-    { "categoryName": "科技", "name": "脑机接口", "subtitles": ["思维控制", "神经科技"], "keyword": "Brain-Computer Interface" },
-    { "categoryName": "科技", "name": "3D打印", "subtitles": ["快速成型", "立体打印"], "keyword": "3D Printing" },
-    { "categoryName": "科技", "name": "元宇宙", "subtitles": ["虚拟世界", "数字宇宙"], "keyword": "Metaverse" },
-
-    { "categoryName": "艺术历史", "name": "文艺复兴", "subtitles": ["人文主义", "古典回归"], "keyword": "Renaissance" },
-    { "categoryName": "艺术历史", "name": "印象派", "subtitles": ["自然光影", "瞬间捕捉"], "keyword": "Impressionism" },
-    { "categoryName": "艺术历史", "name": "立体主义", "subtitles": ["几何分解", "多视角表现"], "keyword": "Cubism" },
-    { "categoryName": "艺术历史", "name": "超现实主义", "subtitles": ["潜意识探索", "梦境表现"], "keyword": "Surrealism" },
-    { "categoryName": "艺术历史", "name": "波普艺术", "subtitles": ["大众文化", "商业图像"], "keyword": "Pop Art" },
-    { "categoryName": "艺术历史", "name": "包豪斯", "subtitles": ["功能主义", "设计教育"], "keyword": "Bauhaus" },
-
-    { "categoryName": "自然", "name": "深海生态", "subtitles": ["海洋生物", "水下世界"], "keyword": "Deep Sea Ecology" },
-    { "categoryName": "自然", "name": "热带雨林", "subtitles": ["生态系统", "生物多样性"], "keyword": "Tropical Rainforest" },
-    { "categoryName": "自然", "name": "极光现象", "subtitles": ["天文奇观", "极地现象"], "keyword": "Aurora" },
-    { "categoryName": "自然", "name": "生物荧光", "subtitles": ["自然发光", "深海奇观"], "keyword": "Bioluminescence" },
-    { "categoryName": "自然", "name": "珊瑚白化", "subtitles": ["海洋生态", "气候变暖"], "keyword": "Coral Bleaching" },
-
-    { "categoryName": "设计原则", "name": "对比原则", "subtitles": ["差异突显", "视觉重点"], "keyword": "Contrast" },
-    { "categoryName": "设计原则", "name": "视觉层次", "subtitles": ["重要性排序", "注意力引导"], "keyword": "Visual Hierarchy" },
-    { "categoryName": "设计原则", "name": "负空间", "subtitles": ["留白利用", "呼吸空间"], "keyword": "Negative Space" },
-    { "categoryName": "设计原则", "name": "格式塔原则", "subtitles": ["视觉整体", "知觉组织"], "keyword": "Gestalt Principles" },
-
-    { "categoryName": "创意方法", "name": "逆向思维", "subtitles": ["反向推理", "常规挑战"], "keyword": "Reverse Thinking" },
-    { "categoryName": "创意方法", "name": "头脑风暴", "subtitles": ["自由联想", "量化产出"], "keyword": "Brainstorming" },
-    { "categoryName": "创意方法", "name": "思维导图", "subtitles": ["放射状思考", "视觉组织"], "keyword": "Mind Mapping" },
-    { "categoryName": "创意方法", "name": "SCAMPER技法", "subtitles": ["系统改良", "多维变化"], "keyword": "SCAMPER" },
-    { "categoryName": "创意方法", "name": "限制创造", "subtitles": ["约束思考", "焦点创新"], "keyword": "Constraint Creation" },
-    { "categoryName": "创意方法", "name": "原型快速制作", "subtitles": ["快速验证", "迭代设计"], "keyword": "Rapid Prototyping" },
-    { "categoryName": "创意方法", "name": "隐喻思考", "subtitles": ["象征联想", "意义转化"], "keyword": "Metaphorical Thinking" }
+  "groups": [
+    {
+      "name": "默认分组",
+      "categories": [
+        {
+          "name": "科技",
+          "tags": [
+            { "name": "人工智能", "subtitles": ["计算机领域", "AI"], "keyword": "Artificial Intelligence" },
+            { "name": "虚拟现实", "subtitles": ["VR技术", "交互体验"], "keyword": "Virtual Reality" },
+            { "name": "区块链", "subtitles": ["分布式技术", "加密货币"], "keyword": "Blockchain" },
+            { "name": "物联网", "subtitles": ["智能连接", "设备互联"], "keyword": "IoT" },
+            { "name": "脑机接口", "subtitles": ["思维控制", "神经科技"], "keyword": "Brain-Computer Interface" },
+            { "name": "3D打印", "subtitles": ["快速成型", "立体打印"], "keyword": "3D Printing" },
+            { "name": "元宇宙", "subtitles": ["虚拟世界", "数字宇宙"], "keyword": "Metaverse" }
+          ]
+        },
+        {
+          "name": "艺术历史",
+          "tags": [
+            { "name": "文艺复兴", "subtitles": ["人文主义", "古典回归"], "keyword": "Renaissance" },
+            { "name": "印象派", "subtitles": ["自然光影", "瞬间捕捉"], "keyword": "Impressionism" },
+            { "name": "立体主义", "subtitles": ["几何分解", "多视角表现"], "keyword": "Cubism" },
+            { "name": "超现实主义", "subtitles": ["潜意识探索", "梦境表现"], "keyword": "Surrealism" },
+            { "name": "波普艺术", "subtitles": ["大众文化", "商业图像"], "keyword": "Pop Art" },
+            { "name": "包豪斯", "subtitles": ["功能主义", "设计教育"], "keyword": "Bauhaus" }
+          ]
+        },
+        {
+          "name": "自然",
+          "tags": [
+            { "name": "深海生态", "subtitles": ["海洋生物", "水下世界"], "keyword": "Deep Sea Ecology" },
+            { "name": "热带雨林", "subtitles": ["生态系统", "生物多样性"], "keyword": "Tropical Rainforest" },
+            { "name": "极光现象", "subtitles": ["天文奇观", "极地现象"], "keyword": "Aurora" },
+            { "name": "生物荧光", "subtitles": ["自然发光", "深海奇观"], "keyword": "Bioluminescence" },
+            { "name": "珊瑚白化", "subtitles": ["海洋生态", "气候变暖"], "keyword": "Coral Bleaching" }
+          ]
+        },
+        {
+          "name": "设计原则",
+          "tags": [
+            { "name": "对比原则", "subtitles": ["差异突显", "视觉重点"], "keyword": "Contrast" },
+            { "name": "视觉层次", "subtitles": ["重要性排序", "注意力引导"], "keyword": "Visual Hierarchy" },
+            { "name": "负空间", "subtitles": ["留白利用", "呼吸空间"], "keyword": "Negative Space" },
+            { "name": "格式塔原则", "subtitles": ["视觉整体", "知觉组织"], "keyword": "Gestalt Principles" }
+          ]
+        },
+        {
+          "name": "创意方法",
+          "tags": [
+            { "name": "逆向思维", "subtitles": ["反向推理", "常规挑战"], "keyword": "Reverse Thinking" },
+            { "name": "头脑风暴", "subtitles": ["自由联想", "量化产出"], "keyword": "Brainstorming" },
+            { "name": "思维导图", "subtitles": ["放射状思考", "视觉组织"], "keyword": "Mind Mapping" },
+            { "name": "SCAMPER技法", "subtitles": ["系统改良", "多维变化"], "keyword": "SCAMPER" },
+            { "name": "限制创造", "subtitles": ["约束思考", "焦点创新"], "keyword": "Constraint Creation" },
+            { "name": "原型快速制作", "subtitles": ["快速验证", "迭代设计"], "keyword": "Rapid Prototyping" },
+            { "name": "隐喻思考", "subtitles": ["象征联想", "意义转化"], "keyword": "Metaphorical Thinking" }
+          ]
+        }
+      ]
+    }
   ]
 }
