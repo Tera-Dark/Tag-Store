@@ -9,22 +9,37 @@ import {
     NEmpty, 
     NDivider,
     NScrollbar,
-    useMessage
+    useMessage,
+    NTreeSelect,
+    NSelect,
+    NSpin,
+    NButtonGroup,
+    NMenu,
+    NTag,
+    NTooltip
 } from 'naive-ui';
-import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, StarOutline as StarIconOutline, Star as StarIconFilled, AddCircleOutline as AddIcon, PricetagsOutline as CategoryIcon, FolderOpenOutline as GroupIcon, RemoveCircleOutline as RemoveIcon } from '@vicons/ionicons5';
+import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, StarOutline as StarIconOutline, Star as StarIconFilled, AddCircleOutline as AddIcon, PricetagsOutline as CategoryIcon, FolderOpenOutline as GroupIcon, RemoveCircleOutline as RemoveIcon, ArrowBackOutline as ArrowBackIcon, ListOutline as ListIcon } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { Tag, Group, Category } from '../../types/data';
 import { useRouter } from 'vue-router';
+import _ from 'lodash';
+import { safeCompare, filterValidTags } from '../../utils/sortHelpers';
+import { useErrorHandler, ErrorType as ErrorServiceType } from '../../services/ErrorService';
+import TagShoppingCartCard from '../../components/tools/TagShoppingCartCard.vue';
+import CategoryNavMenu from '../../components/tools/CategoryNavMenu.vue';
+import VirtualTagList from '../../components/global/VirtualTagList.vue';
 
 const tagStore = useTagStore();
 const router = useRouter();
 const message = useMessage();
 const settingsStore = useSettingsStore();
+const { handleError } = useErrorHandler();
 
 // --- Constants ---
 const FAVORITES_KEY = '__FAVORITES__';
 const FAVORITES_STORAGE_KEY = 'tagShoppingCartFavorites';
+const ALL_TAGS_KEY = '__ALL_TAGS__';
 
 // --- State ---
 const selectedTags = ref<Tag[]>([]);
@@ -36,6 +51,37 @@ const cartTags = ref<Tag[]>([]);
 const cartTagWeights = ref<{[id: string]: number}>({});
 const cartTagNotes = ref<{[id: string]: string}>({});
 const cartResultText = ref('');
+
+// 添加分页相关变量
+const currentPage = ref(1);
+const pageSize = ref(50);
+const isLoadingMoreTags = ref(false);
+const hasMoreTags = computed(() => {
+  return paginatedTags.value.length < currentTagsToShow.value.length;
+});
+
+// 显示当前分页下的标签
+const paginatedTags = computed(() => {
+  const start = 0;
+  const end = currentPage.value * pageSize.value;
+  return currentTagsToShow.value.slice(start, end);
+});
+
+// 添加购物车排序功能和显示模式控制
+const cartSortMode = ref<'category' | 'alpha' | 'added'>('category');
+const cartDisplayMode = ref<'grouped' | 'flat'>('grouped');
+
+// 平铺显示的已选择标签列表（按字母顺序或添加顺序排序）
+const sortedSelectedTags = computed(() => {
+  let sorted = [...selectedTags.value];
+  
+  if (cartSortMode.value === 'alpha') {
+    sorted.sort(safeCompare);
+  }
+  // 'added' 模式不需要排序，保持原始添加顺序
+  
+  return sorted;
+});
 
 // --- Computed Properties ---
 
@@ -59,11 +105,11 @@ const categoryMenuOptions = computed(() => {
     });
 
     // Sort categories within groups
-    groupMap.forEach(gData => gData.categories.sort((a, b) => a.name.localeCompare(b.name)));
+    groupMap.forEach(gData => gData.categories.sort(safeCompare));
 
     // Sort groups
     const sortedGroups = Array.from(groupMap.values())
-        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || a.group.name.localeCompare(b.group.name));
+        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || safeCompare(a.group, b.group));
 
     // Build menu options with groups as expandable items
     const menuItems: any[] = sortedGroups.map(gData => ({
@@ -78,8 +124,9 @@ const categoryMenuOptions = computed(() => {
     }));
 
     const favOption = { label: '收藏夹', key: FAVORITES_KEY, icon: () => h(NIcon, null, { default: () => h(StarIconFilled) }) };
+    const allTagsOption = { label: '所有分类', key: ALL_TAGS_KEY, icon: () => h(NIcon, null, { default: () => h(CategoryIcon) }) };
 
-    return [favOption, ...menuItems];
+    return [favOption, allTagsOption, ...menuItems];
 });
 
 // Get favorited tags from the main store
@@ -92,24 +139,36 @@ const favoritedTags = computed((): Tag[] => {
 // Tags to show (Simplified: handles search, favorites, or selected category)
 const currentTagsToShow = computed((): Tag[] => {
     const searchTerm = tagSearchTerm.value.toLowerCase().trim();
+    
+    console.log('当前选择的分类ID：', selectedCategoryId.value);
+    console.log('标签总数：', tagStore.tags.length);
 
     // --- Global Search Logic ---
     if (searchTerm) {
-        return tagStore.tags.filter(tag => 
-            tag.name.toLowerCase().includes(searchTerm) || 
+        const filteredTags = filterValidTags(tagStore.tags.filter(tag => 
+            tag.name?.toLowerCase().includes(searchTerm) || 
             (tag.keyword && tag.keyword.toLowerCase().includes(searchTerm))
-        ).sort((a, b) => a.name.localeCompare(b.name));
+        ));
+        return filteredTags.sort(safeCompare);
+    }
+
+    // --- All Tags option ---
+    if (selectedCategoryId.value === ALL_TAGS_KEY) {
+        console.log('显示所有分类标签，标签总数：', tagStore.tags.length);
+        const validTags = filterValidTags(tagStore.tags);
+        return validTags.sort(safeCompare);
     }
 
     // --- Favorite/Category Logic (Only if search term is empty) ---
     if (selectedCategoryId.value === FAVORITES_KEY) {
-        return favoritedTags.value.sort((a, b) => a.name.localeCompare(b.name)); // Sort favorites
+        const validFavoriteTags = filterValidTags(favoritedTags.value);
+        return validFavoriteTags.sort(safeCompare); // Sort favorites
     }
     
     if (selectedCategoryId.value && !selectedCategoryId.value.startsWith('group-')) {
          // Valid category selected
-         return tagStore.tags.filter(tag => tag.categoryId === selectedCategoryId.value)
-                             .sort((a, b) => a.name.localeCompare(b.name)); // Sort category tags
+         const filteredTags = filterValidTags(tagStore.tags.filter(tag => tag.categoryId === selectedCategoryId.value));
+         return filteredTags.sort(safeCompare); // Sort category tags
     }
 
     // Otherwise (no selection, group selected, etc.), show nothing
@@ -153,22 +212,22 @@ const groupedSelectedTagsForDisplay = computed(() => {
     // Sort tags within categories and categories within groups
     groupMap.forEach(groupData => {
         groupData.categories.forEach(categoryData => {
-            categoryData.tags.sort((a, b) => a.name.localeCompare(b.name)); 
+            categoryData.tags.sort(safeCompare); 
         });
         const sortedCategoriesArray = Array.from(groupData.categories.values())
-            .sort((a, b) => a.category.name.localeCompare(b.category.name));
+            .sort((a, b) => safeCompare(a.category, b.category));
         // Store sorted categories as an array for easier template iteration
         groupData.categories = new Map(sortedCategoriesArray.map(catData => [catData.category.id, catData])); 
     });
 
     // Sort groups 
     const sortedGroups = Array.from(groupMap.values())
-        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || a.group.name.localeCompare(b.group.name));
+        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || safeCompare(a.group, b.group));
 
     // Add sorted categories array to each group object for template
     sortedGroups.forEach(groupData => {
          (groupData as any).sortedCategories = Array.from(groupData.categories.values())
-            .sort((a, b) => a.category.name.localeCompare(b.category.name));
+            .sort((a, b) => safeCompare(a.category, b.category));
     });
 
     return sortedGroups; 
@@ -242,15 +301,21 @@ const handleBack = () => {
     router.push('/toolbox'); // Assuming toolbox route exists
 };
 
-// Select first category on initial load if none selected
+// 选择中第一个类别的默认初始加载
 watch(selectedCategoryId, (newVal, _oldVal) => {
+    console.log('监听到 selectedCategoryId 变化:', newVal);
+    
+    // 如果当前选择为空，选择默认分类
     if (newVal === undefined && categoryMenuOptions.value.length > 0) {
-        const firstCategoryOption = categoryMenuOptions.value.flatMap(group => group.children || [group]).find(item => !item.type && item.key !== FAVORITES_KEY);
-        if (firstCategoryOption) {
-            selectedCategoryId.value = firstCategoryOption.key;
-        } else if (categoryMenuOptions.value.length > 0) {
-             selectedCategoryId.value = categoryMenuOptions.value[0].key; 
-        }
+        // 首先选择"所有分类"
+        selectedCategoryId.value = ALL_TAGS_KEY;
+        console.log('设置默认分类为"所有分类":', ALL_TAGS_KEY);
+        return;
+    }
+    
+    // 如果选择了"所有分类"，确认是否有标签数据
+    if (newVal === ALL_TAGS_KEY) {
+        console.log('选择了"所有分类"，当前标签总数:', tagStore.tags.length);
     }
 }, { immediate: true });
 
@@ -262,6 +327,39 @@ watch(selectedTags, (newTags) => {
 // Add call to load favorites on mount
 onMounted(() => {
     loadFavorites();
+    
+    // 移除这里的默认选择，全部由 watch 处理
+    
+    // 添加滚动加载
+    const handleScroll = _.debounce((e) => {
+        const scrollbar = document.querySelector('.tags-list-card .n-scrollbar');
+        if (!scrollbar || isLoadingMoreTags.value || !hasMoreTags.value) return;
+        
+        const { scrollTop, scrollHeight, clientHeight } = scrollbar;
+        if (scrollHeight - scrollTop - clientHeight < 100) {
+            loadMoreTags();
+        }
+    }, 200);
+    
+    const scrollbar = document.querySelector('.tags-list-card .n-scrollbar');
+    if (scrollbar) {
+        scrollbar.addEventListener('scroll', handleScroll);
+    }
+});
+
+// 添加对标签数据的监听，确保数据加载后重新评估分类选择
+watch(() => tagStore.tags.length, (newLength) => {
+    console.log('标签数据更新，新的标签总数:', newLength);
+    
+    // 如果已经选择了"所有分类"但当前没有显示标签，可以尝试重新触发计算
+    if (selectedCategoryId.value === ALL_TAGS_KEY && currentTagsToShow.value.length === 0 && newLength > 0) {
+        // 尝试重新触发计算
+        const currentSelection = selectedCategoryId.value;
+        selectedCategoryId.value = undefined;
+        setTimeout(() => {
+            selectedCategoryId.value = currentSelection;
+        }, 0);
+    }
 });
 
 // Modified: Add Tag to Cart (used by toggle function)
@@ -326,15 +424,59 @@ const copySingleTag = (tag: Tag) => {
 */
 
 // Add all visible tags in the current category/view to the cart
-/* // Removed unused addAllVisibleTags
 const addAllVisibleTags = () => {
-    // This needs access to the currently displayed tags (e.g., from TagGrid if used)
-    // For now, let's assume we have `visibleTags` computed property or ref
-    // visibleTags.value.forEach(tag => addTagToCart(tag));
-    console.warn("Add All Visible Tags - Not fully implemented, needs visible tags data.");
-    message.info("已添加所有可见标签（待实现）");
+  if (paginatedTags.value.length === 0) {
+    message.warning('当前没有可见标签');
+    return;
+  }
+
+  let addedCount = 0;
+  paginatedTags.value.forEach(tag => {
+    // 检查标签是否已在购物车中
+    if (!selectedTags.value.some(t => t.id === tag.id)) {
+      selectedTags.value.push(tag);
+      addedCount++;
+    }
+  });
+
+  if (addedCount > 0) {
+    message.success(`已添加 ${addedCount} 个标签到购物车`);
+  } else {
+    message.info('所有标签已在购物车中');
+  }
 };
-*/
+
+// 添加一个新函数，用于添加当前分类的所有标签
+const addAllCategoryTags = () => {
+  if (!selectedCategoryId.value || selectedCategoryId.value === FAVORITES_KEY) {
+    message.warning('请先选择一个分类');
+    return;
+  }
+  
+  // 获取当前分类的所有标签（不只是当前页的）
+  const categoryTags = selectedCategoryId.value.startsWith('group-')
+    ? [] // 不支持整个组的添加，这会导致添加太多标签
+    : tagStore.tags.filter(tag => tag.categoryId === selectedCategoryId.value);
+  
+  if (categoryTags.length === 0) {
+    message.warning('当前分类没有标签');
+    return;
+  }
+
+  let addedCount = 0;
+  categoryTags.forEach(tag => {
+    if (!selectedTags.value.some(t => t.id === tag.id)) {
+      selectedTags.value.push(tag);
+      addedCount++;
+    }
+  });
+
+  if (addedCount > 0) {
+    message.success(`已添加当前分类的 ${addedCount} 个标签到购物车`);
+  } else {
+    message.info('当前分类的所有标签已在购物车中');
+  }
+};
 
 // 4. 结果区（支持多种导出格式、自动刷新）
 watch([cartTags, cartTagWeights, cartTagNotes], () => {
@@ -342,426 +484,679 @@ watch([cartTags, cartTagWeights, cartTagNotes], () => {
   cartResultText.value = cartTags.value.map(tag => tag.name).join(', ');
 }, {deep: true});
 
+// 加载更多标签
+const loadMoreTags = async () => {
+    isLoadingMoreTags.value = true;
+    // 模拟延迟加载，给UI时间刷新
+    await new Promise(resolve => setTimeout(resolve, 100));
+    currentPage.value++;
+    isLoadingMoreTags.value = false;
+};
+
+// 监听标签搜索和分类变化，重置分页
+watch([tagSearchTerm, selectedCategoryId], () => {
+    currentPage.value = 1;
+}, { immediate: true });
+
+// 更新购物车排序方式
+const updateCartSortMode = (mode: 'category' | 'alpha' | 'added') => {
+  cartSortMode.value = mode;
+};
+
+// 更新购物车显示模式
+const toggleCartDisplayMode = () => {
+  cartDisplayMode.value = cartDisplayMode.value === 'grouped' ? 'flat' : 'grouped';
+};
+
 </script>
 
 <template>
-  <div class="tag-cart-view" style="padding-bottom: 80px;">
-    <n-page-header title="标签购物车" @back="handleBack">
-      <template #subtitle>选择、组合并复制标签</template>
-      <!-- Header actions removed, moved to action bar -->
-    </n-page-header>
-    <n-divider />
-
-    <n-layout has-sider class="main-layout">
-      <n-layout-sider 
-        bordered 
-        collapse-mode="width" 
-        :collapsed-width="64" 
-        :width="240" 
-        show-trigger 
-        class="sidebar"
+  <div class="cart-page-header">
+    <n-button text circle size="large" class="back-btn" @click="handleBack">
+      <n-icon size="24" :component="ArrowBackIcon" />
+    </n-button>
+  </div>
+  <div class="tag-cart-container">
+    <h1 class="page-title">标签购物车</h1>
+    
+    <div class="main-layout">
+      <!-- 左侧侧边栏：分类导航 -->
+      <category-nav-menu
+        v-model:modelValue="selectedCategoryId"
+        :favorites-key="FAVORITES_KEY"
+        :all-tags-key="ALL_TAGS_KEY"
       >
-        <n-menu
-          v-model:value="selectedCategoryId"
-          :options="categoryMenuOptions"
-          :indent="18"
-        />
-      </n-layout-sider>
-
-      <n-layout-content class="content-area">
-        <div class="content-grid">
-          <!-- Left Panel: Available Tags (Updated Click Handler & Class) -->
-          <n-card title="可用标签" size="small" class="available-tags-panel">
-            <template #header-extra>
-              <n-input 
-                v-model:value="tagSearchTerm" 
-                placeholder="搜索标签名或关键词..." 
-                clearable 
-                size="small"
-              />
-            </template>
-            <n-scrollbar style="max-height: calc(100vh - 220px);">
-              <n-flex v-if="currentTagsToShow.length > 0" class="tag-list" :size="[8, 12]">
-                <div 
-                  v-for="tag in currentTagsToShow" 
+        <template #actions>
+          <div class="category-actions" v-if="selectedCategoryId && !selectedCategoryId.startsWith('group-') && selectedCategoryId !== ALL_TAGS_KEY && selectedCategoryId !== FAVORITES_KEY">
+            <n-button size="small" @click="addAllCategoryTags" type="primary" ghost>
+              <template #icon><n-icon :component="AddIcon" /></template>
+              添加此分类全部
+            </n-button>
+          </div>
+        </template>
+      </category-nav-menu>
+      
+      <!-- 中间面板：可用标签展示 -->
+      <div class="middle-panel">
+        <!-- 可用标签 -->
+        <n-card title="可用标签" class="control-card tags-list-card">
+          <template #header-extra>
+            <span v-if="currentTagsToShow.length" class="tags-count">
+              {{ currentTagsToShow.length }} 个标签
+            </span>
+          </template>
+          
+          <!-- 搜索框 -->
+          <div class="tags-search-container">
+            <n-input 
+              v-model:value="tagSearchTerm" 
+              placeholder="搜索标签名或关键词..." 
+              clearable
+              class="search-input"
+            />
+          </div>
+          
+          <!-- 虚拟滚动列表 -->
+          <virtual-tag-list
+            :tags="currentTagsToShow"
+            :page-size="pageSize"
+            container-selector=".tags-list-card .n-scrollbar"
+            @select="toggleTagInCart"
+            @load-more="loadMoreTags"
+          >
+            <template #tags="{ displayedTags, onSelect }">
+              <div class="tags-grid">
+                <tag-shopping-cart-card
+                  v-for="tag in displayedTags"
                   :key="tag.id"
-                  class="tag-item-card" 
-                  @click="toggleTagInCart(tag)" 
-                  :class="{'tag-item-selected': selectedTags.some(selected => selected.id === tag.id)}"
-                >
-                  <div class="tag-card-header">
-                    <n-button text circle size="tiny" @click.stop="toggleFavorite(tag.id)" class="favorite-button" :title="favoriteTagIds.has(tag.id) ? '取消收藏' : '收藏'">
-                      <n-icon :component="favoriteTagIds.has(tag.id) ? StarIconFilled : StarIconOutline" />
+                  :tag="tag"
+                  :is-selected="selectedTags.some(selected => selected.id === tag.id)"
+                  :is-favorite="favoriteTagIds.has(tag.id)"
+                  @toggle="onSelect(tag)"
+                  @toggle-favorite="toggleFavorite(tag.id)"
+                />
+              </div>
+            </template>
+            
+            <template #loader="{ loading }">
+              <n-button 
+                size="small" 
+                @click="loadMoreTags" 
+                :loading="loading"
+                :disabled="loading"
+              >
+                {{ loading ? '加载中...' : `加载更多 (${paginatedTags.length}/${currentTagsToShow.length})` }}
+              </n-button>
+            </template>
+          </virtual-tag-list>
+        </n-card>
+      </div>
+      
+      <!-- 右侧面板：购物车与结果 -->
+      <div class="right-panel">
+        <!-- 购物车内容 -->
+        <n-card title="购物车内容" class="result-card">
+          <template #header-extra>
+            <n-space>
+              <n-tag v-if="selectedTags.length > 0" type="success" size="small">
+                总计: {{ selectedTags.length }}
+              </n-tag>
+              <n-button size="tiny" @click="addAllVisibleTags" v-if="paginatedTags.length > 0 && !isLoadingMoreTags">
+                <template #icon><n-icon :component="AddIcon" /></template>
+                添加所有
+              </n-button>
+            </n-space>
+          </template>
+          
+          <div v-if="selectedTags.length === 0" class="empty-state">
+            <n-empty description="从左侧选择标签添加到购物车" style="margin-top: 40px;" />
+          </div>
+          
+          <div v-else>
+            <!-- 视图控制和排序选项 -->
+            <div class="cart-view-controls">
+              <n-space align="center">
+                <span class="control-label">显示方式:</span>
+                <n-button-group size="small">
+                  <n-button 
+                    :type="cartDisplayMode === 'grouped' ? 'primary' : 'default'"
+                    @click="cartDisplayMode = 'grouped'"
+                    size="small"
+                  >
+                    <template #icon><n-icon :component="GroupIcon" /></template>
+                    分组
+                  </n-button>
+                  <n-button 
+                    :type="cartDisplayMode === 'flat' ? 'primary' : 'default'"
+                    @click="cartDisplayMode = 'flat'"
+                    size="small"
+                  >
+                    <template #icon><n-icon :component="ListIcon" /></template>
+                    平铺
+                  </n-button>
+                </n-button-group>
+              </n-space>
+              
+              <n-space align="center" v-if="cartDisplayMode === 'flat'">
+                <span class="control-label">排序:</span>
+                <n-select
+                  v-model:value="cartSortMode"
+                  :options="[
+                    { label: '按添加顺序', value: 'added' },
+                    { label: '按字母顺序', value: 'alpha' }
+                  ]"
+                  size="small"
+                  style="width: 110px"
+                />
+              </n-space>
+            </div>
+            
+            <n-scrollbar style="max-height: min(calc(60vh - 160px), 500px); min-height: 250px;">
+              <!-- 分组视图 -->
+              <div class="cart-content" v-if="cartDisplayMode === 'grouped'">
+                <n-space vertical>
+                  <n-card 
+                    v-for="groupData in groupedSelectedTagsForDisplay" 
+                    :key="groupData.group.id" 
+                    :title="groupData.group.name" 
+                    size="small" 
+                    hoverable
+                    class="cart-group-card"
+                  >
+                    <template #header-extra>
+                      <n-icon :component="GroupIcon" />
+                    </template>
+                    <n-space vertical size="small">
+                      <div v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id" class="cart-category-section">
+                        <div class="cart-category-header">
+                          {{ categoryData.category.name }}
+                          <span class="category-tag-count">({{ categoryData.tags.length }})</span>
+                        </div>
+                        <div class="cart-items-container">
+                          <!-- 购物车标签项 -->
+                          <div 
+                            v-for="tag in categoryData.tags" 
+                            :key="tag.id" 
+                            class="cart-item-card"
+                          >
+                            <div class="cart-item-content">
+                              <div class="cart-item-name">{{ tag.name }}</div>
+                              <div class="cart-item-keyword">{{ tag.keyword || '' }}</div>
+                            </div>
+                            <n-button 
+                              text 
+                              circle 
+                              size="tiny" 
+                              @click="removeTagFromCart(tag)" 
+                              class="cart-item-remove-button"
+                              title="从购物车移除"
+                            >
+                              <template #icon><n-icon :component="RemoveIcon" /></template>
+                            </n-button>
+                          </div>
+                        </div>
+                      </div>
+                    </n-space>
+                  </n-card>
+                </n-space>
+              </div>
+              
+              <!-- 平铺视图 -->
+              <div class="flat-cart-content" v-else>
+                <div class="cart-items-container">
+                  <div 
+                    v-for="tag in sortedSelectedTags" 
+                    :key="tag.id" 
+                    class="cart-item-card"
+                  >
+                    <div class="cart-item-content">
+                      <div class="cart-item-name">{{ tag.name }}</div>
+                      <div class="cart-item-keyword">{{ tag.keyword || '' }}</div>
+                    </div>
+                    <n-button 
+                      text 
+                      circle 
+                      size="tiny" 
+                      @click="removeTagFromCart(tag)" 
+                      class="cart-item-remove-button"
+                      title="从购物车移除"
+                    >
+                      <template #icon><n-icon :component="RemoveIcon" /></template>
                     </n-button>
-                    <n-button text circle size="tiny" class="add-button" title="添加/移除购物车">
-                      <n-icon :component="AddIcon" />
-                    </n-button>
-                  </div>
-                  <div class="tag-card-body">
-                    <div class="tag-name">{{ tag.name }}</div>
-                    <div class="tag-keyword">{{ tag.keyword || '&nbsp;' }}</div>
                   </div>
                 </div>
-              </n-flex>
-              <n-empty v-else description="选择分类或搜索查看标签" style="margin-top: 40px;" />
-            </n-scrollbar>
-          </n-card>
-
-          <!-- Right Panel: Selected Tags (Cart - Updated Item Layout) -->
-          <n-card title="购物车" size="small" class="cart-panel">
-             <template #header-extra>
-                 <n-tag v-if="selectedTags.length > 0" type="success" size="small">
-                     总计: {{ selectedTags.length }}
-                 </n-tag>
-             </template>
-            <n-scrollbar style="max-height: calc(100vh - 260px);">
-              <div v-if="selectedTags.length > 0" class="cart-content">
-                 <!-- Grouped Display -->
-                 <n-space vertical>
-                    <n-card 
-                        v-for="groupData in groupedSelectedTagsForDisplay" 
-                        :key="groupData.group.id" 
-                        :title="groupData.group.name" 
-                        size="small" 
-                        hoverable
-                        class="cart-group-card"
-                     >
-                       <template #header-extra>
-                           <n-icon :component="GroupIcon" />
-                       </template>
-                        <n-space vertical size="small">
-                            <div v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id" class="cart-category-section">
-                                <div class="cart-category-header">{{ categoryData.category.name }}</div>
-                                <div class="cart-items-container">
-                                    <!-- Updated cart item structure -->
-                                    <div 
-                                        v-for="tag in categoryData.tags" 
-                                        :key="tag.id" 
-                                        class="cart-item-card"
-                                    >
-                                        <div class="cart-item-content">
-                                            <div class="cart-item-name">{{ tag.name }}</div>
-                                            <div class="cart-item-keyword">{{ tag.keyword || '' }}</div>
-                                        </div>
-                                        <n-button 
-                                            text 
-                                            circle 
-                                            size="tiny" 
-                                            @click="removeTagFromCart(tag)" 
-                                            class="cart-item-remove-button"
-                                            title="从购物车移除"
-                                        >
-                                            <template #icon><n-icon :component="RemoveIcon" /></template>
-                                        </n-button>
-                                    </div>
-                                </div>
-                            </div>
-                        </n-space>
-                    </n-card>
-                 </n-space>
-
-                 <n-divider title-placement="left" style="margin-top: 20px;">复制内容预览 (逗号分隔)</n-divider>
-                 <n-input
-                    v-model:value="selectedTagsString"
-                    type="textarea"
-                    readonly
-                    placeholder="购物车为空"
-                    :autosize="{ minRows: 2, maxRows: 5 }"
-                  />
               </div>
-              <n-empty v-else description="从左侧选择标签添加到购物车" style="margin-top: 40px;"/>
             </n-scrollbar>
-          </n-card>
-        </div>
-      </n-layout-content>
-    </n-layout>
-
-    <!-- Fixed Action Bar -->
-    <div class="fixed-action-bar" :style="actionBarStyle">
-         <n-button 
-            type="primary" 
-            @click="copySelectedTags" 
-            :disabled="selectedTags.length === 0"
-            size="large"
-            style="margin-right: 12px;"
-          >
-              <template #icon><n-icon :component="CopyIcon" /></template>
-              复制购物车内容
-          </n-button>
-          <n-popconfirm @positive-click="clearSelectedTags">
-              <template #trigger>
-                  <n-button 
-                    type="error" 
-                    secondary 
-                    :disabled="selectedTags.length === 0"
-                    size="large"
-                   >
+            
+            <!-- 操作按钮 -->
+            <div class="cart-actions">
+              <n-space justify="space-between">
+                <n-popconfirm @positive-click="clearSelectedTags">
+                  <template #trigger>
+                    <n-button type="error" secondary>
                       <template #icon><n-icon :component="ClearIcon" /></template>
                       清空购物车
-                  </n-button>
-              </template>
-              确定要清空购物车中的所有标签吗？
-          </n-popconfirm>
+                    </n-button>
+                  </template>
+                  确定要清空购物车中的所有标签吗？
+                </n-popconfirm>
+                
+                <n-button type="primary" @click="copySelectedTags">
+                  <template #icon><n-icon :component="CopyIcon" /></template>
+                  复制内容
+                </n-button>
+              </n-space>
+            </div>
+          </div>
+        </n-card>
+        
+        <!-- 复制预览 -->
+        <n-card title="复制预览" class="result-card" v-if="selectedTags.length > 0">
+          <n-input
+            v-model:value="selectedTagsString"
+            type="textarea"
+            readonly
+            placeholder="购物车为空"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+          />
+          <div class="preview-actions">
+            <n-button type="primary" size="small" @click="copySelectedTags">
+              <template #icon><n-icon :component="CopyIcon" /></template>
+              复制内容
+            </n-button>
+          </div>
+        </n-card>
+      </div>
     </div>
   </div>
 </template>
 
-
 <style scoped>
-.tag-cart-view {
-  height: calc(100vh - 65px - 50px); /* Adjust based on header/footer heights */
-  display: flex;
-  flex-direction: column;
+/* 全局容器样式 */
+.tag-cart-container {
+  max-width: 1600px; /* 增加最大宽度以适应三栏布局 */
+  margin: 0 auto;
+  padding: 20px;
 }
 
+.page-title {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: var(--n-text-color-1);
+}
+
+.cart-page-header {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+}
+
+/* 主布局 - 三栏结构 */
 .main-layout {
-  flex-grow: 1;
-  /* overflow: hidden; Prevent double scrollbars */
-}
-
-.sidebar {
-  height: 100%;
-}
-:deep(.sidebar .n-layout-sider-scroll-container) {
-     overflow-x: hidden; /* Hide horizontal scrollbar */
-}
-
-
-.content-area {
-  padding: 15px;
-  height: 100%;
-  overflow: hidden; /* Prevent layout content from scrolling */
-}
-
-.content-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); /* Responsive columns */
-  gap: 15px;
-  height: 100%; /* Fill content area height */
+  grid-template-columns: 220px minmax(300px, 1fr) minmax(380px, 1.1fr);
+  gap: 16px;
 }
 
-.available-tags-panel,
-.cart-panel {
+/* 左侧侧边栏 */
+.category-sidebar {
+  height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
-  height: 100%; /* Make panels fill grid cell height */
-  overflow: hidden; /* Prevent panel content overflow */
+  border-right: 1px solid var(--n-divider-color);
+  padding-right: 8px;
+  background-color: var(--n-color);
+  border-radius: 8px;
 }
 
-.available-tags-panel :deep(.n-card__content),
-.cart-panel :deep(.n-card__content) {
+.sidebar-header {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--n-divider-color);
+  color: var(--n-text-color-1);
+}
+
+.sidebar-scrollbar {
   flex-grow: 1;
-  overflow: hidden; /* Prevent card content overflow */
-  padding: 5px 10px !important; /* Adjust padding */
+  height: calc(100% - 100px);
 }
 
-.available-tags-panel .n-scrollbar,
-.cart-panel .n-scrollbar {
+.category-menu {
+  height: 100%;
+}
+
+.category-actions {
+  padding: 12px 0;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid var(--n-divider-color);
+}
+
+/* 中间面板 */
+.middle-panel {
+  min-width: 0; /* 确保不溢出 */
+  display: flex;
+  flex-direction: column;
+}
+
+.tags-list-card {
   flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
 }
 
-/* --- Available Tags List - Updated Item Card Style --- */
-.tag-list {
-  padding: 5px;
-  display: flex; /* Ensure flex wrap works */
-  flex-wrap: wrap;
+.tags-search-container {
+  margin-bottom: 12px;
+}
+
+.search-input {
+  width: 100%;
+}
+
+/* 右侧面板 */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0; /* 确保不溢出 */
+}
+
+.result-card {
+  border-radius: 8px;
+}
+
+/* 标签网格 */
+.tags-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 12px;
+  padding: 8px 4px;
 }
 
 .tag-item-card {
-    border: 1px solid var(--n-border-color);
-    border-radius: 4px;
-    margin: 4px;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    background-color: var(--n-color);
-    transition: box-shadow 0.2s ease, border-color 0.2s ease;
-    position: relative;
-    overflow: hidden;
-    min-width: 100px; /* Adjust min width */
-    cursor: pointer; /* Indicate the whole card is clickable */
+  border: 1px solid var(--n-border-color);
+  border-radius: 8px;
+  padding: 8px 0 8px 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--n-color);
+  transition: all 0.2s ease;
+  position: relative;
+  cursor: pointer;
+  height: 100px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .tag-item-card:hover {
-    border-color: var(--n-primary-color-hover);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  border-color: var(--n-primary-color-hover);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
 }
 
 .tag-card-header {
-    display: flex;
-    justify-content: flex-end; /* Buttons to the right */
-    padding: 2px 4px;
-    background-color: var(--n-action-color); /* Subtle header background */
-    position: absolute;
-    top: 0;
-    right: 0;
-    left: 0;
-    opacity: 0; /* Hide initially */
-    transition: opacity 0.2s ease;
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+  z-index: 2;
 }
 
 .tag-item-card:hover .tag-card-header {
-    opacity: 1;
-}
-
-.tag-card-header .favorite-button {
-    position: absolute; /* Position fav button independently */
-    left: 4px;
-    top: 2px;
-}
-
-.tag-card-header .add-button {
-   /* Styling for add button if needed, but click is on card now */
-   pointer-events: none; /* Prevent clicks directly on this button icon */
+  opacity: 1;
 }
 
 .tag-card-body {
-    padding: 22px 8px 6px 8px; /* Top padding to clear header */
-    text-align: center;
+  padding: 24px 6px 8px;
+  text-align: center;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
 }
 
-.tag-card-body .tag-name {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--n-text-color-1);
-    margin-bottom: 2px;
-    word-break: break-word;
+.tag-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--n-text-color-1);
+  margin-bottom: 3px;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.tag-card-body .tag-keyword {
-    font-size: 11px;
-    color: var(--n-text-color-3);
-    word-break: break-word;
-    min-height: 15px; /* Ensure space even if empty */
+.tag-keyword {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--n-text-color-3);
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  background-color: rgba(0, 0, 0, 0.03);
+  padding: 2px 4px;
+  border-radius: 4px;
+  margin-top: 4px;
 }
 
+/* 已选标签样式 */
+.tag-item-selected {
+  border-color: var(--n-primary-color);
+  background-color: var(--n-primary-color-suppl);
+  box-shadow: 0 0 0 1px var(--n-primary-color);
+}
 
-/* --- Cart Display - Updated Item Layout --- */
+/* 购物车内容样式 */
+.cart-category-header {
+  font-weight: 500;
+  color: var(--n-text-color-2);
+  margin-bottom: 8px;
+  padding-left: 6px;
+  border-left: 3px solid var(--n-primary-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.category-tag-count {
+  font-size: 12px;
+  color: var(--n-text-color-3);
+  font-weight: normal;
+}
+
 .cart-items-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
 .cart-item-card {
-    background-color: var(--n-color);
-    border: 1px solid var(--n-divider-color);
-    border-radius: 4px;
-    padding: 6px 28px 6px 10px; /* Adjust padding for remove button */
-    display: flex;
-    align-items: center;
-    position: relative;
-    transition: background-color 0.2s ease;
-    flex-grow: 1; /* Allow items to grow if needed */
-    min-width: 120px; /* Minimum width for better layout */
+  background-color: var(--n-color);
+  border: 1px solid var(--n-divider-color);
+  border-radius: 8px;
+  padding: 6px 28px 6px 8px;
+  display: flex;
+  align-items: center;
+  position: relative;
+  transition: background-color 0.2s ease;
+  flex: 0 0 calc(33.333% - 6px);
+  max-width: calc(33.333% - 6px);
+  min-width: 100px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .cart-item-card:hover {
-    background-color: var(--n-color-hover);
+  background-color: var(--n-color-hover);
 }
 
-/* NEW: Container for name and keyword */
 .cart-item-content {
-    flex-grow: 1; /* Allow content to take available space */
-    margin-right: 8px; /* Space between content and button area */
-    overflow: hidden; /* Prevent content from overflowing card */
+  width: calc(100% - 20px);
+  overflow: hidden;
 }
 
 .cart-item-name {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--n-text-color-1);
-    padding-right: 0; /* Remove previous padding */
-    overflow-wrap: break-word; /* Allow long words to wrap */
-    word-break: break-word; /* Ensure wrapping */
-    line-height: 1.3;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--n-text-color-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .cart-item-keyword {
-    font-size: 12px;
-    color: var(--n-text-color-3);
-    margin-left: 8px;
-    font-style: italic;
-    flex-shrink: 0; /* Prevent keyword from shrinking too much */
-    overflow-wrap: break-word; 
-    word-break: break-word; 
-    line-height: 1.2;
+  font-size: 12px;
+  color: var(--n-text-color-3);
+  margin-top: 2px;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .cart-item-remove-button {
-    position: absolute;
-    top: 50%;
-    right: 6px; /* Adjust position slightly */
-    transform: translateY(-50%);
-    opacity: 0.6;
-    color: var(--n-error-color);
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  opacity: 0.6;
+  color: var(--n-error-color);
 }
 
 .cart-item-card:hover .cart-item-remove-button {
-    opacity: 1;
+  opacity: 1;
 }
 
-/* NEW: Style for selected tag cards in the available list */
-.tag-item-card.tag-item-selected {
-    border-color: var(--n-primary-color-pressed);
-    box-shadow: 0 0 0 1px var(--n-primary-color-pressed);
-    background-color: var(--n-item-color-active-hover);
+.cart-actions {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--n-divider-color);
 }
 
-/* --- Fixed Action Bar --- */
-.fixed-action-bar {
-  position: fixed;
-  bottom: 0;
-  right: 0;
-  height: 64px; 
-  background-color: var(--n-card-color);
-  border-top: 1px solid var(--n-border-color);
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+/* 空状态 */
+.empty-state {
+  height: 300px; 
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 0 24px;
-  z-index: 10;
-  transition: left 0.3s var(--n-bezier), background-color 0.3s var(--n-bezier), border-color 0.3s var(--n-bezier);
 }
 
-/* Responsive adjustments */
+/* 加载提示样式 */
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+  padding: 8px;
+}
+
+.tags-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--n-scrollbar-color) transparent;
+}
+
+.cart-view-controls {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.control-label {
+  font-size: 13px;
+  color: var(--n-text-color-2);
+}
+
+.flat-cart-content {
+  margin-bottom: 16px;
+}
+
+.preview-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 响应式布局调整 */
+@media (max-width: 1400px) {
+  .main-layout {
+    grid-template-columns: 200px minmax(280px, 1fr) minmax(350px, 1fr);
+  }
+}
+
+@media (max-width: 1100px) {
+  .main-layout {
+    grid-template-columns: 180px 1fr 1fr;
+    gap: 12px;
+  }
+  
+  .tags-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  }
+  
+  .cart-item-card {
+    flex: 0 0 calc(50% - 6px);
+    max-width: calc(50% - 6px);
+  }
+}
+
+@media (max-width: 900px) {
+  .main-layout {
+    grid-template-columns: 160px minmax(250px, 1fr) minmax(250px, 1fr);
+    gap: 8px;
+  }
+}
+
 @media (max-width: 768px) {
-  .tag-cart-view {
-     height: calc(100vh - 60px - 50px); /* Adjust if header is smaller */
-     padding-bottom: 70px; /* Ensure space for action bar */
+  .main-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
   
-  .content-grid {
-     grid-template-columns: 1fr; /* Stack columns on smaller screens */
+  .category-sidebar {
+    height: auto;
+    max-height: 300px;
+    border-right: none;
+    padding-right: 0;
+    margin-bottom: 16px;
   }
   
-  .available-tags-panel,
-  .cart-panel {
-      height: auto; /* Allow content to determine height */
-      min-height: 250px; /* Ensure some minimum height */
+  .sidebar-scrollbar {
+    height: 220px;
   }
-   .available-tags-panel .n-scrollbar,
-   .cart-panel .n-scrollbar {
-      max-height: 35vh; /* Limit scroll height on small screens */
-   }
-
-
-  .fixed-action-bar {
-    height: 56px; 
-    padding: 0 16px;
-    left: 0 !important; 
-  }
-
-  .fixed-action-bar .n-button {
-     padding-left: 10px;
-     padding-right: 10px;
-  }
-  .fixed-action-bar .n-button--large {
-      height: 40px;
-      font-size: 14px;
+  
+  .tags-list-card, 
+  .result-card {
+    height: auto;
   }
 }
 
+@media (max-width: 480px) {
+  .cart-item-card {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+  
+  .tag-item-card {
+    height: 70px;
+  }
+}
 </style> 

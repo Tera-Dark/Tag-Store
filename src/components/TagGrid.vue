@@ -361,10 +361,54 @@ const copySelectedTagNames = async () => {
   }
 };
 
+// 是否在搜索中
+const isSearching = computed(() => tagStore.searchTerm.trim() !== '' && isLoading.value);
+
+// 搜索是否耗时过长
+const searchTakingLong = ref(false);
+let searchTimer: number | null = null;
+
+// 监视加载状态，处理长时间搜索提示
+watch(() => isLoading.value, (loading) => {
+  if (loading && tagStore.searchTerm.trim() !== '') {
+    // 如果搜索超过500ms还没完成，显示提示
+    searchTimer = window.setTimeout(() => {
+      searchTakingLong.value = true;
+    }, 500);
+  } else {
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+    searchTakingLong.value = false;
+  }
+});
+
+// 组件销毁时清理定时器
+onUnmounted(() => {
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+    searchTimer = null;
+  }
+});
+
 </script>
 
 <template>
   <div class="tag-grid-container" ref="gridContainerRef">
+    <!-- 搜索状态指示器 -->
+    <div v-if="isSearching || isLoading" class="search-status">
+      <n-spin size="small" />
+      <span v-if="searchTakingLong" class="search-message">
+        搜索大型标签库可能需要一些时间，请稍候...
+      </span>
+    </div>
+    
+    <!-- 搜索结果信息 -->
+    <div v-if="tagStore.searchTerm && !isSearching && !isLoading" class="search-results-info">
+      找到 {{ allFilteredTags.length }} 个结果
+    </div>
+
     <!-- Action area - Use NFlex for better responsive controls -->
     <n-flex class="controls-section" justify="space-between" align="center" :wrap="true">
       <!-- Left side controls -->
@@ -602,5 +646,26 @@ const copySelectedTagNames = async () => {
 
 .grid-wrapper.has-more::after {
   display: block;
+}
+
+.search-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px;
+  background-color: rgba(var(--primary-color-rgb), 0.05);
+  border-radius: 4px;
+}
+
+.search-message {
+  font-size: 14px;
+  color: var(--text-color-secondary);
+}
+
+.search-results-info {
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--text-color-secondary);
 }
 </style> 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, h } from 'vue';
 import { 
     NSelect, 
     NInputNumber,
@@ -17,6 +17,8 @@ import {
     NCollapseItem,
     NScrollbar,
     NEmpty,
+    NTreeSelect,
+    NTag,
     useMessage
 } from 'naive-ui';
 import { 
@@ -29,8 +31,12 @@ import {
     ArrowBackOutline as ArrowBackIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
-import type { Tag, Group, Category } from '../../types/data';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useRouter } from 'vue-router';
+import type { Tag, Group, Category } from '../../types/data';
+import { safeCompare, filterValidTags } from '../../utils/sortHelpers';
+import { useErrorHandler, ErrorType } from '../../services/ErrorService';
+import _ from 'lodash';
 
 type TemplateType = 'sd' | 'mj' | 'cn' | 'comfy' | 'custom';
 type TemplateConfig = {
@@ -46,7 +52,8 @@ const message = useMessage();
 const router = useRouter();
 
 // --- 基本组件状态 ---
-const selectedCategoryId = ref<string | null>(null);
+const selectedNodeKeys = ref<string[]>([]);
+const ALL_CATEGORIES_KEY = '__ALL__';
 const searchTerm = ref<string>('');
 const selectedTags = ref<Tag[]>([]);
 const generatedPrompt = ref<string>('');
@@ -145,6 +152,14 @@ const favoriteTagIds = ref<Set<string>>(new Set());
 
 const defaultExpandedNames = ref<string[]>([]);
 
+const MAX_TAGS_PER_PAGE = 50; // 每页显示的最大标签数
+const currentPage = ref(1); // 当前页码
+const isVirtualScrollEnabled = ref(true); // 是否启用虚拟滚动
+const tagsPerPage = ref(MAX_TAGS_PER_PAGE); // 用户可调整的每页标签数量
+
+// 添加加载状态
+const isLoadingMoreTags = ref(false);
+
 const saveSettings = () => {
     try {
         // 格式化所有要保存的权重值
@@ -173,7 +188,12 @@ const saveSettings = () => {
             extractionSettings: extractionSettings.value,
             extractionHistory: extractionHistory.value, // 保存历史记录
             globalNestingCount: globalNestingCount.value,
-            selectedCategoryId: selectedCategoryId.value
+            selectedNodeKeys: selectedNodeKeys.value, // 存储选择的节点键（多选分类）
+            // 保存懒加载设置
+            lazyLoadSettings: {
+                tagsPerPage: tagsPerPage.value,
+                isVirtualScrollEnabled: isVirtualScrollEnabled.value
+            }
         };
         localStorage.setItem('weightGeneratorSettings', JSON.stringify(settings));
         message.success('设置已保存');
@@ -217,7 +237,19 @@ const loadSettings = () => {
                 templates.value.custom = settings.templates.custom;
             }
             globalNestingCount.value = settings.globalNestingCount || 0;
-            selectedCategoryId.value = settings.selectedCategoryId === null ? '' : (settings.selectedCategoryId || '');
+            
+            // 加载分类选择（多选）
+            if (settings.selectedNodeKeys && Array.isArray(settings.selectedNodeKeys)) {
+                selectedNodeKeys.value = settings.selectedNodeKeys;
+            }
+            
+            // 加载懒加载设置
+            if (settings.lazyLoadSettings) {
+                tagsPerPage.value = settings.lazyLoadSettings.tagsPerPage || MAX_TAGS_PER_PAGE;
+                isVirtualScrollEnabled.value = settings.lazyLoadSettings.isVirtualScrollEnabled !== undefined 
+                    ? settings.lazyLoadSettings.isVirtualScrollEnabled 
+                    : true;
+            }
         }
     } catch (error) {
         console.error('加载设置失败:', error);
@@ -237,28 +269,83 @@ watch(
 );
 
 // --- 计算属性 ---
-const categoryOptions = computed(() => {
-    return tagStore.categories.map(cat => ({
-        label: cat.name,
-        value: cat.id
-    }));
+const treeData = computed(() => {
+  const groupMap = new Map<string, { group: Group; categories: Category[] }>();
+  tagStore.groups.forEach(g => groupMap.set(g.id, { group: g, categories: [] }));
+  tagStore.categories.forEach(c => {
+      const groupData = groupMap.get(c.groupId);
+      if (groupData) {
+          groupData.categories.push(c);
+      }
+  });
+  groupMap.forEach(gData => gData.categories.sort(safeCompare));
+  const sortedGroups = Array.from(groupMap.values())
+      .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || safeCompare(a.group, b.group));
+
+  const groupOptions = sortedGroups.map(gData => ({
+      label: gData.group.name,
+      key: `group-${gData.group.id}`,
+      icon: () => h(NIcon, null, { default: () => h(TagIcon) }),
+      children: gData.categories.map(cat => ({
+          label: cat.name,
+          key: cat.id,
+          icon: () => h(NIcon, null, { default: () => h(TagIcon) })
+      }))
+  }));
+
+  const options: Array<any> = [
+      {
+          label: '所有分类',
+          key: ALL_CATEGORIES_KEY,
+          icon: () => h(NIcon, null, { default: () => h(TagIcon) })
+      },
+      ...groupOptions
+  ];
+
+  return options;
+});
+
+const finalSelectedCategoryIds = computed((): string[] => {
+  const keys = selectedNodeKeys.value;
+  if (!keys || keys.length === 0 || keys.includes(ALL_CATEGORIES_KEY)) {
+      return tagStore.categories.map(cat => cat.id);
+  }
+
+  const finalIds = new Set<string>();
+
+  keys.forEach(key => {
+      if (key.startsWith('group-')) {
+          const groupId = key.substring('group-'.length);
+          tagStore.categories.forEach(cat => {
+              if (cat.groupId === groupId) {
+                  finalIds.add(cat.id);
+              }
+          });
+      } else if (key !== ALL_CATEGORIES_KEY) {
+          finalIds.add(key);
+      }
+  });
+
+  return Array.from(finalIds);
 });
 
 const tagsViewMode = ref<'grid' | 'list'>('grid'); // Restore view mode state
 
 // Modify filteredTags to group by Group -> Category
 const groupedFilteredTags = computed(() => {
-    // Start with tags filtered by category selection and search term
-    const baseFilteredTags = tagStore.tags.filter(t => {
-        // Category Filter: Handle null/empty string for 'All Categories'
-        const categoryMatch = !selectedCategoryId.value || t.categoryId === selectedCategoryId.value;
-        // Search Term Filter
+    // 根据finalSelectedCategoryIds和searchTerm直接过滤
+    const baseFilteredTags = filterValidTags(tagStore.tags.filter(t => {
+        // 分类过滤：判断标签的分类ID是否在选定的分类ID列表中
+        const categoryMatch = finalSelectedCategoryIds.value.includes(t.categoryId);
+        
+        // 搜索词过滤
         const searchMatch = !searchTerm.value || 
                             t.name.toLowerCase().includes(searchTerm.value.toLowerCase()) || 
                             t.subtitles?.some(s => s.toLowerCase().includes(searchTerm.value.toLowerCase())) || 
                             t.keyword?.toLowerCase().includes(searchTerm.value.toLowerCase());
+        
         return categoryMatch && searchMatch;
-    });
+    }));
 
     // Grouping logic (similar to TagShoppingCartView)
     const groupMap = new Map<string, { group: Group; categories: Map<string, { category: Category; tags: Tag[] }> }>();
@@ -286,15 +373,15 @@ const groupedFilteredTags = computed(() => {
     // Sort tags, categories, and groups
     groupMap.forEach(groupData => {
         groupData.categories.forEach(categoryData => {
-            categoryData.tags.sort((a, b) => a.name.localeCompare(b.name));
+            categoryData.tags.sort(safeCompare);
         });
          // Convert categories map to sorted array for the template
         (groupData as any).sortedCategories = Array.from(groupData.categories.values())
-            .sort((a, b) => a.category.name.localeCompare(b.category.name));
+            .sort((a, b) => safeCompare(a.category, b.category));
     });
 
     const sortedGroups = Array.from(groupMap.values())
-        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || a.group.name.localeCompare(b.group.name));
+        .sort((a, b) => (a.group.order ?? Infinity) - (b.group.order ?? Infinity) || safeCompare(a.group, b.group));
 
     return sortedGroups;
 });
@@ -613,15 +700,35 @@ onMounted(() => {
     loadSettings();
     loadFavorites();
     isReady.value = true; // Assume ready since libraryStore handles loading
-    tagStore.setFilter(null, selectedCategoryId.value); // Apply initial filter if any
     // Default expansion is now handled by the watcher
+    
+    // 添加滚动监听，实现自动加载更多
+    if (typeof window !== 'undefined') {
+        const handleScroll = _.debounce(() => {
+            if (!isVirtualScrollEnabled.value || isLoadingMoreTags.value || !hasMoreTags.value) return;
+            
+            // 更精确的选择器，通过标签库面板作为父元素
+            const tagListContainer = document.querySelector('.left-panel .n-scrollbar');
+            if (!tagListContainer) return;
+            
+            const rect = tagListContainer.getBoundingClientRect();
+            const isNearBottom = rect.bottom <= window.innerHeight + 100;
+            
+            if (isNearBottom) {
+                loadMoreTags();
+            }
+        }, 200);
+        
+        window.addEventListener('scroll', handleScroll);
+        
+        // 清理函数
+        return () => {
+            window.removeEventListener('scroll', handleScroll);
+        };
+    }
 });
 
 // --- 监听器 ---
-watch(selectedCategoryId, (newVal) => {
-  tagStore.setFilter(null, newVal === '' ? null : newVal); // Now expects string | null
-});
-
 // NEW: Watch groupedFilteredTags to set default expansion when data is ready
 watch(groupedFilteredTags, (newGroups) => {
     if (newGroups.length > 0 && defaultExpandedNames.value.length === 0) {
@@ -709,374 +816,641 @@ watch([
   });
   generatePrompt();
 }, { deep: true });
+
+// 计算分页后的标签
+const paginatedTags = computed(() => {
+  if (!isVirtualScrollEnabled.value) {
+    return groupedFilteredTags.value; // 如果不启用虚拟滚动，返回全部标签
+  }
+  return groupedFilteredTags.value.slice(0, currentPage.value * tagsPerPage.value);
+});
+
+// 添加加载更多按钮
+const hasMoreTags = computed(() => {
+  return paginatedTags.value.length < groupedFilteredTags.value.length;
+});
+
+// 修改loadMoreTags函数，添加加载状态
+const loadMoreTags = async () => {
+  isLoadingMoreTags.value = true;
+  // 模拟延迟加载，给UI时间刷新
+  await new Promise(resolve => setTimeout(resolve, 100));
+  currentPage.value++;
+  isLoadingMoreTags.value = false;
+};
+
+// 检查标签是否已被选中
+const isTagSelected = (tagId: string): boolean => {
+  return selectedTags.value.some(tag => tag.id === tagId);
+};
+
+// 清空所有选中的标签
+const clearAllTags = () => {
+  selectedTags.value = [];
+  tagWeights.value = {};
+  tagBrackets.value = {};
+  bracketNesting.value = {};
+  generatePrompt();
+  message.success('已清空所有标签');
+};
 </script>
 
 <template>
-  <div class="weight-header">
+  <div class="weight-generator-header">
     <n-button text circle size="large" class="back-btn" @click="handleBack">
       <n-icon size="24" :component="ArrowBackIcon" />
     </n-button>
   </div>
-  <div class="weight-main-card">
-    <h2 class="weight-h2">权重添加器</h2>
-    <n-divider style="margin-bottom: 24px; margin-top: 8px;" />
-    <div class="main-controls">
-      <!-- 输入/解析文本区 -->
-      <n-card size="small" class="input-card">
-        <n-input
-          v-model:value="inputText"
-          type="textarea"
-          :rows="4"
-          placeholder="在此输入或粘贴标签文本，用逗号、换行符或Tab分隔..."
-        />
-        <n-space justify="end" style="margin-top: 8px;">
-          <n-button type="primary" @click="handleParseAndAdd">解析并添加标签</n-button>
-        </n-space>
-      </n-card>
-      <!-- 标签库选择（可折叠） -->
-      <n-collapse>
-        <n-collapse-item title="从库选择标签">
-          <n-space align="center" style="margin-bottom: 8px;">
-            <n-select
-              v-model:value="selectedCategoryId"
-              :options="[{ label: '所有分类', value: '' }, ...categoryOptions]"
-              placeholder="筛选分类"
-              clearable
-              size="small"
-              style="min-width: 120px;"
-            />
+  <div class="weight-generator-container">
+    <h1 class="page-title">权重添加器</h1>
+    
+    <div class="main-layout">
+      <!-- 左侧面板：输入和设置 -->
+      <div class="left-panel">
+        <!-- 输入文本区域 -->
+        <n-card title="文本输入" class="control-card">
+          <n-space vertical size="large">
             <n-input
-              v-model:value="searchTerm"
-              placeholder="搜索标签库..."
-              clearable
-              size="small"
-              style="margin-left: 8px; width: 180px;"
+              v-model:value="inputText"
+              type="textarea"
+              :rows="4"
+              placeholder="在此输入或粘贴标签文本，用逗号、换行符或Tab分隔..."
             />
-            <n-button text circle size="small" @click="tagsViewMode = tagsViewMode === 'grid' ? 'list' : 'grid'" style="margin-left: 8px;">
-              <n-icon :component="tagsViewMode === 'grid' ? ListIcon : TagIcon" />
-            </n-button>
+            <div class="action-buttons">
+              <n-button
+                type="primary"
+                size="large"
+                @click="handleParseAndAdd"
+                class="main-action-button"
+              >
+                解析并添加标签
+              </n-button>
+            </div>
           </n-space>
-          <n-scrollbar style="max-height: 220px;">
-            <template v-if="tagsViewMode === 'grid'">
-              <div v-for="groupData in groupedFilteredTags" :key="groupData.group.id">
-                <div v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id">
-                  <div class="category-header-grid">{{ categoryData.category.name }}</div>
-                  <n-flex wrap :size="[8, 8]" class="tag-list-grid">
-                    <div
-                      v-for="tag in categoryData.tags"
+        </n-card>
+        
+        <!-- 标签库选择 -->
+        <n-card title="从标签库选择" class="control-card">
+          <n-space vertical size="medium">
+            <div class="input-group">
+              <div class="input-label">筛选分类</div>
+              <n-tree-select
+                v-model:value="selectedNodeKeys"
+                :options="treeData"
+                multiple
+                cascade
+                placeholder="选择分类"
+                clearable
+                class="full-width"
+              />
+            </div>
+            
+            <div class="input-group">
+              <div class="input-label">搜索标签</div>
+              <n-input 
+                v-model:value="searchTerm" 
+                placeholder="输入关键词搜索" 
+                clearable
+                class="full-width"
+              />
+            </div>
+            
+            <n-scrollbar style="max-height: 220px;">
+              <div v-for="groupData in paginatedTags" :key="groupData.group.id">
+                <div class="group-header">{{ groupData.group.name }}</div>
+                <div v-for="categoryData in Array.from(groupData.categories.values())" :key="categoryData.category.id">
+                  <div class="category-header">{{ categoryData.category.name }}</div>
+                  <div class="tag-list-grid">
+                    <div 
+                      v-for="tag in categoryData.tags" 
                       :key="tag.id"
-                      class="tag-item-card"
+                      class="tag-item-wrapper"
                       @click="toggleSelectionFromLibrary(tag)"
-                      :class="{'tag-item-selected': selectedTags.some(st => st.id === tag.id)}"
                     >
-                      <div class="tag-card-body">
-                        <div class="tag-name">{{ tag.name }}</div>
-                        <div class="tag-keyword">{{ tag.keyword || '' }}</div>
-                      </div>
+                      <n-tag 
+                        :type="isTagSelected(tag.id) ? 'primary' : 'default'"
+                        size="medium"
+                        class="tag-item"
+                      >
+                        {{ tag.name }}
+                      </n-tag>
+                      <div class="tag-keyword-tooltip" v-if="tag.keyword">{{ tag.keyword }}</div>
                     </div>
-                  </n-flex>
+                  </div>
                 </div>
               </div>
-            </template>
-            <template v-else>
-              <div v-for="groupData in groupedFilteredTags" :key="groupData.group.id">
-                <div v-for="categoryData in (groupData as any).sortedCategories" :key="categoryData.category.id">
-                  <div class="category-header-grid">{{ categoryData.category.name }}</div>
-                  <n-list hoverable clickable size="small" class="tag-list-view">
-                    <n-list-item
-                      v-for="tag in categoryData.tags"
-                      :key="tag.id"
-                      @click="toggleSelectionFromLibrary(tag)"
-                      :class="{'tag-item-selected': selectedTags.some(st => st.id === tag.id)}"
-                    >
-                      <n-thing :title="tag.name">
-                        <template #description>
-                          <span class="tag-keyword">{{ tag.keyword || '' }}</span>
-                        </template>
-                      </n-thing>
-                    </n-list-item>
-                  </n-list>
+              <div v-if="hasMoreTags && isVirtualScrollEnabled" class="load-more-container">
+                <n-button 
+                  size="small" 
+                  @click="loadMoreTags" 
+                  :loading="isLoadingMoreTags"
+                  :disabled="isLoadingMoreTags"
+                >
+                  {{ isLoadingMoreTags ? '加载中...' : `加载更多 (${paginatedTags.length}/${groupedFilteredTags.length})` }}
+                </n-button>
+              </div>
+            </n-scrollbar>
+          </n-space>
+        </n-card>
+        
+        <!-- 基本设置 -->
+        <n-card title="基本设置" class="control-card">
+          <n-space vertical size="medium">
+            <div class="input-group">
+              <div class="input-label">输出模板</div>
+              <n-select
+                v-model:value="activeTemplate"
+                :options="Object.entries(templates).map(([key, t]) => ({ label: t.name, value: key as any }))"
+                placeholder="选择模板格式"
+                class="full-width"
+              />
+            </div>
+            
+            <div class="input-group">
+              <div class="input-label">默认权重</div>
+              <n-input-number
+                v-model:value="defaultWeight"
+                :min="0"
+                :max="2"
+                :step="Math.pow(0.1, decimalPlaces)"
+                class="full-width"
+              />
+            </div>
+            
+            <div class="input-group">
+              <div class="input-label">默认括号</div>
+              <n-select
+                v-model:value="defaultBracket"
+                :options="bracketTypes"
+                placeholder="选择括号类型"
+                class="full-width"
+              />
+            </div>
+            
+            <div class="input-group">
+              <div class="input-label">小数位数</div>
+              <n-input-number
+                v-model:value="decimalPlaces"
+                :min="0"
+                :max="3"
+                :step="1"
+                class="full-width"
+              />
+            </div>
+          </n-space>
+        </n-card>
+        
+        <!-- 历史记录 -->
+        <n-card title="历史记录" class="control-card">
+          <n-scrollbar style="max-height: 150px;">
+            <div v-if="!extractionHistory.length" class="empty-history">暂无解析历史记录</div>
+            <div class="history-list" v-else>
+              <div 
+                v-for="(text, index) in extractionHistory" 
+                :key="index" 
+                class="history-item" 
+                @click="loadFromHistory(text)"
+              >
+                <div class="history-text">
+                  {{ text.length > 50 ? text.slice(0, 50) + '...' : text }}
                 </div>
               </div>
-            </template>
-            <n-empty v-if="groupedFilteredTags.length === 0 && !searchTerm" description="无可用分组或分类" size="small" style="margin-top: 20px;"/>
-            <n-empty v-if="groupedFilteredTags.length === 0 && searchTerm" description="未搜索到匹配标签" size="small" style="margin-top: 20px;"/>
+            </div>
           </n-scrollbar>
-        </n-collapse-item>
-      </n-collapse>
-      <!-- 已选标签区 -->
-      <n-card size="small" class="selected-card">
-        <n-space justify="end" style="margin-bottom: 8px;">
-          <n-button type="primary" size="large" @click="applyRandomWeights" :disabled="selectedTags.length === 0">
-            <template #icon><n-icon :component="RandomIcon" /></template>
-            随机权重
-          </n-button>
-          <n-button size="small" @click="resetWeights" :disabled="selectedTags.length === 0">重置权重</n-button>
-          <n-button size="small" @click="resetAllTags" :disabled="selectedTags.length === 0">重置权重和括号</n-button>
-          <n-button size="small" type="error" @click="clearTags" :disabled="selectedTags.length === 0">清空</n-button>
-          <n-button text circle size="small" @click="selectedTagsViewMode = selectedTagsViewMode === 'grid' ? 'list' : 'grid'" style="margin-left: 8px;">
-            <n-icon :component="selectedTagsViewMode === 'grid' ? ListIcon : TagIcon" />
-          </n-button>
-        </n-space>
-        <div v-if="selectedTags.length > 0">
-          <n-scrollbar style="max-height: 400px; min-height: 40px;">
-            <template v-if="selectedTagsViewMode === 'grid'">
-              <div class="selected-tags-grid">
-                <div class="selected-tag-item header">
-                  <div class="tag-name-col">标签</div>
-                  <div class="tag-weight-col">权重</div>
-                  <div class="tag-bracket-col">括号</div>
-                  <div class="tag-nesting-col">嵌套</div>
-                  <div class="tag-actions-col">操作</div>
+        </n-card>
+      </div>
+      
+      <!-- 右侧面板：选中标签和输出结果 -->
+      <div class="right-panel">
+        <!-- 选中的标签 -->
+        <n-card title="已选标签" class="result-card">
+          <template #header-extra>
+            <span v-if="selectedTags.length" class="tag-count">
+              共 {{ selectedTags.length }} 个标签
+            </span>
+          </template>
+          
+          <div v-if="selectedTags.length === 0" class="empty-state">
+            <n-empty description="尚未选择任何标签" />
+          </div>
+          
+          <div v-else class="selected-tags-container">
+            <div class="selected-tags-header">
+              <div class="header-name">标签名称</div>
+              <div class="header-keyword">关键词</div>
+              <div class="header-weight">权重</div>
+              <div class="header-bracket">括号</div>
+              <div class="header-nesting">嵌套</div>
+              <div class="header-action"></div>
+            </div>
+            
+            <n-scrollbar style="max-height: 350px;">
+              <div 
+                v-for="(tag, index) in selectedTags" 
+                :key="tag.id" 
+                class="selected-tag-item"
+              >
+                <div class="tag-name">{{ tag.name }}</div>
+                <div class="tag-keyword">{{ tag.keyword || '-' }}</div>
+                <div class="tag-weight">
+                  <n-input-number 
+                    v-model:value="tagWeights[tag.id]" 
+                    size="small" 
+                    :min="0" 
+                    :max="maxWeight" 
+                    :step="Math.pow(0.1, decimalPlaces)"
+                    @update:value="(val) => val !== null && updateTagWeight(tag.id, val)"
+                  />
                 </div>
-                <div v-for="(tag, index) in selectedTags" :key="tag.id" class="selected-tag-item">
-                  <div class="tag-name-col">
-                    <div>{{ tag.name }}</div>
-                    <div class="tag-keyword-selected">{{ tag.keyword || '' }}</div>
-                  </div>
-                  <div class="tag-weight-col">
-                    <n-input-number v-model:value="tagWeights[tag.id]" size="tiny" :min="0" :max="maxWeight" :step="Math.pow(0.1, decimalPlaces)" @update:value="(val) => val !== null && updateTagWeight(tag.id, val)" style="width: 85px;" />
-                  </div>
-                  <div class="tag-bracket-col">
-                    <n-select v-model:value="tagBrackets[tag.id]" :options="bracketTypes" size="tiny" style="width: 80px;" />
-                  </div>
-                  <div class="tag-nesting-col">
-                    <n-input-number
-                      v-model:value="bracketNesting[tag.id]"
-                      size="tiny"
-                      :min="0"
-                      :max="5"
-                      :step="1"
-                      style="width: 90px;"
-                      :disabled="tagBrackets[tag.id] === 'none'"
-                    />
-                  </div>
-                  <div class="tag-actions-col">
-                    <n-button text circle size="tiny" type="error" @click="removeTag(index)">
-                      <template #icon><n-icon :component="ClearIcon"/></template>
-                    </n-button>
-                  </div>
+                <div class="tag-bracket">
+                  <n-select 
+                    v-model:value="tagBrackets[tag.id]" 
+                    :options="bracketTypes" 
+                    size="small"
+                  />
+                </div>
+                <div class="tag-nesting">
+                  <n-input-number
+                    v-model:value="bracketNesting[tag.id]"
+                    size="small"
+                    :min="0"
+                    :max="5"
+                    :step="1"
+                    :disabled="tagBrackets[tag.id] === 'none'"
+                  />
+                </div>
+                <div class="tag-action">
+                  <n-button text circle size="small" type="error" @click="removeTag(index)">
+                    <template #icon><n-icon :component="ClearIcon"/></template>
+                  </n-button>
                 </div>
               </div>
-            </template>
-            <template v-else>
-              <n-list hoverable clickable size="small" class="selected-tags-list-view">
-                <n-list-item v-for="(tag, index) in selectedTags" :key="tag.id">
-                  <n-thing :title="tag.name">
-                    <template #description>
-                      <span class="tag-keyword-selected">{{ tag.keyword || '' }}</span>
-                    </template>
-                    <template #action>
-                      <n-space>
-                        <n-input-number v-model:value="tagWeights[tag.id]" size="tiny" :min="0" :max="maxWeight" :step="Math.pow(0.1, decimalPlaces)" @update:value="(val) => val !== null && updateTagWeight(tag.id, val)" style="width: 85px;" />
-                        <n-select v-model:value="tagBrackets[tag.id]" :options="bracketTypes" size="tiny" style="width: 80px;" />
-                        <n-input-number
-                          v-model:value="bracketNesting[tag.id]"
-                          size="tiny"
-                          :min="0"
-                          :max="5"
-                          :step="1"
-                          style="width: 90px;"
-                          :disabled="tagBrackets[tag.id] === 'none'"
-                        />
-                        <n-button text circle size="tiny" type="error" @click="removeTag(index)">
-                          <template #icon><n-icon :component="ClearIcon"/></template>
-                        </n-button>
-                      </n-space>
-                    </template>
-                  </n-thing>
-                </n-list-item>
-              </n-list>
-            </template>
-          </n-scrollbar>
-        </div>
-        <n-empty v-else description="请先输入或选择标签" size="small" style="padding: 20px 0;"/>
-      </n-card>
-      <!-- 生成结果区 -->
-      <n-card size="small" class="result-card">
-        <n-select
-          v-model:value="activeTemplate"
-          :options="Object.entries(templates).map(([key, t]) => ({ label: t.name, value: key as any }))"
-          size="small"
-          style="width: 150px; margin-bottom: 8px;"
-          title="选择输出模板格式"
-        />
-        <n-input
-          v-model:value="generatedPrompt"
-          type="textarea"
-          placeholder="添加标签后将在此生成..."
-          :rows="4"
-          readonly
-        />
-        <n-space justify="end" style="margin-top: 8px;">
-          <n-button type="primary" @click="copyToClipboard" :disabled="!generatedPrompt">
-            <template #icon><n-icon :component="CopyIcon" /></template>
-            复制生成结果
-          </n-button>
-        </n-space>
-      </n-card>
+            </n-scrollbar>
+            
+            <div class="bulk-actions">
+              <n-space justify="space-between">
+                <n-button size="small" @click="resetAllTags">重置权重和括号</n-button>
+                <n-button size="small" @click="applyRandomWeights">随机权重</n-button>
+                <n-button size="small" type="error" @click="clearAllTags" v-if="selectedTags.length > 0">
+                  清空所有
+                </n-button>
+              </n-space>
+            </div>
+          </div>
+        </n-card>
+        
+        <!-- 生成结果 -->
+        <n-card title="生成结果" class="result-card">
+          <n-input
+            v-model:value="generatedPrompt"
+            type="textarea"
+            placeholder="添加标签后将在此生成..."
+            :rows="5"
+            readonly
+          />
+          
+          <div class="result-actions">
+            <n-button
+              type="primary"
+              size="large"
+              @click="copyToClipboard"
+              :disabled="!generatedPrompt"
+              class="copy-button"
+            >
+              <template #icon><n-icon :component="CopyIcon" /></template>
+              复制生成结果
+            </n-button>
+          </div>
+        </n-card>
+        
+        <!-- 高级设置 -->
+        <n-card title="高级设置" class="result-card">
+          <n-collapse>
+            <n-collapse-item title="文本解析设置">
+              <n-space vertical>
+                <div class="advanced-option">
+                  <span class="option-label">分隔符：</span>
+                  <n-input 
+                    v-model:value="extractionSettings.delimiters" 
+                    size="small" 
+                    placeholder=",\n\t" 
+                  />
+                </div>
+                <n-space>
+                  <n-checkbox v-model:checked="extractionSettings.trimWhitespace">去除首尾空格</n-checkbox>
+                  <n-checkbox v-model:checked="extractionSettings.removeEmpty">移除空标签</n-checkbox>
+                </n-space>
+                <n-space>
+                  <n-checkbox v-model:checked="extractionSettings.caseSensitiveMatch">匹配库时区分大小写</n-checkbox>
+                </n-space>
+              </n-space>
+            </n-collapse-item>
+            
+            <n-collapse-item title="权重范围设置">
+              <n-space vertical>
+                <div class="advanced-option">
+                  <span class="option-label">最小权重：</span>
+                  <n-input-number 
+                    v-model:value="formattedMinWeight" 
+                    :step="Math.pow(0.1, decimalPlaces)" 
+                    :min="0" 
+                    :max="formattedMaxWeight" 
+                    size="small"
+                  />
+                </div>
+                <div class="advanced-option">
+                  <span class="option-label">最大权重：</span>
+                  <n-input-number 
+                    v-model:value="formattedMaxWeight" 
+                    :step="Math.pow(0.1, decimalPlaces)" 
+                    :min="formattedMinWeight" 
+                    :max="2" 
+                    size="small"
+                  />
+                </div>
+                <div class="advanced-option">
+                  <span class="option-label">全局嵌套：</span>
+                  <n-button-group size="small">
+                    <n-button @click="decreaseGlobalNesting" :disabled="globalNestingCount <= 0">-</n-button>
+                    <n-button disabled style="min-width: 35px; text-align: center;">{{ globalNestingCount }}</n-button>
+                    <n-button @click="increaseGlobalNesting" :disabled="globalNestingCount >= 5">+</n-button>
+                  </n-button-group>
+                </div>
+              </n-space>
+            </n-collapse-item>
+            
+            <n-collapse-item title="性能设置">
+              <n-space vertical>
+                <n-checkbox v-model:checked="isVirtualScrollEnabled">启用懒加载 (大量标签时提高性能)</n-checkbox>
+                <div class="advanced-option" v-if="isVirtualScrollEnabled">
+                  <span class="option-label">每页标签数：</span>
+                  <n-slider 
+                    v-model:value="tagsPerPage" 
+                    :min="10" 
+                    :max="200" 
+                    :step="10" 
+                    style="width: 180px;"
+                  />
+                </div>
+              </n-space>
+            </n-collapse-item>
+          </n-collapse>
+          
+          <div class="save-settings">
+            <n-button @click="saveSettings" size="small">
+              <template #icon><n-icon :component="SaveIcon"/></template>
+              保存设置
+            </n-button>
+          </div>
+        </n-card>
+      </div>
     </div>
-    <!-- 折叠面板：高级设置、历史、全局设置 -->
-    <n-collapse style="margin-top: 24px;">
-      <n-collapse-item title="高级设置">
-        <div style="padding: 8px 0;">
-          <!-- 解析设置表单 -->
-          <n-space vertical size="small">
-            <n-input v-model:value="extractionSettings.delimiters" size="tiny" placeholder=",\n\t" style="width: 120px;" />
-            <n-checkbox size="small" v-model:checked="extractionSettings.trimWhitespace">去除首尾空格</n-checkbox>
-            <n-checkbox size="small" v-model:checked="extractionSettings.removeEmpty">移除空标签</n-checkbox>
-            <n-checkbox size="small" v-model:checked="extractionSettings.caseSensitiveMatch">匹配库时区分大小写</n-checkbox>
-          </n-space>
-          <!-- 权重范围、小数位数、默认括号、全局嵌套等 -->
-          <n-space vertical size="small" style="margin-top: 12px;">
-            <n-space align="center">
-              <span>权重范围:</span>
-              <n-input-number size="small" v-model:value="formattedMinWeight" :step="Math.pow(0.1, decimalPlaces)" style="width: 80px;" :min="0" :max="formattedMaxWeight" />
-              <span>-</span>
-              <n-input-number size="small" v-model:value="formattedMaxWeight" :step="Math.pow(0.1, decimalPlaces)" style="width: 80px;" :min="formattedMinWeight" :max="2" />
-            </n-space>
-            <n-space align="center">
-              <span>小数位数:</span>
-              <n-input-number size="small" v-model:value="decimalPlaces" :min="0" :max="3" :step="1" style="width: 80px;" />
-            </n-space>
-            <n-space align="center">
-              <span>默认括号:</span>
-              <n-select size="small" v-model:value="defaultBracket" :options="bracketTypes" style="width: 100px;" />
-            </n-space>
-            <n-space align="center">
-              <span>全局嵌套:</span>
-              <n-button-group size="small">
-                <n-button @click="decreaseGlobalNesting" :disabled="globalNestingCount <= 0">-</n-button>
-                <n-button disabled style="min-width: 35px; text-align: center;">{{ globalNestingCount }}</n-button>
-                <n-button @click="increaseGlobalNesting" :disabled="globalNestingCount >= 5">+</n-button>
-              </n-button-group>
-            </n-space>
-          </n-space>
-        </div>
-      </n-collapse-item>
-      <n-collapse-item title="历史记录">
-        <n-list hoverable clickable size="small" bordered style="max-height: 150px; overflow-y: auto;">
-          <template #header><div style="font-size: 12px; color: var(--n-text-color-3);">解析历史 (点击加载)</div></template>
-          <n-list-item v-if="!extractionHistory.length">
-            <n-empty size="small" description="暂无历史记录" />
-          </n-list-item>
-          <n-list-item v-for="(text, index) in extractionHistory" :key="index" @click="loadFromHistory(text)">
-            {{ text.length > 50 ? text.slice(0, 50) + '...' : text }}
-          </n-list-item>
-        </n-list>
-      </n-collapse-item>
-      <n-collapse-item title="全局设置">
-        <n-space vertical size="small">
-          <n-button text size="tiny" @click="saveSettings" title="手动保存所有设置">
-            <template #icon><n-icon :component="SaveIcon"/></template>
-            手动保存所有设置
-          </n-button>
-        </n-space>
-      </n-collapse-item>
-    </n-collapse>
   </div>
 </template>
 
 <style scoped>
-.weight-header {
-  padding: 24px 0 0 0;
-  margin-left: 0;
+/* 全局容器样式 */
+.weight-generator-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
 }
-.weight-main-card {
-  max-width: 900px;
-  margin: 32px auto 0 auto;
-  padding: 32px 16px 48px 16px;
-  background: #fff;
-  border-radius: 18px;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
+
+.weight-generator-header {
+  padding: 10px;
 }
-.weight-h2 {
-  text-align: center;
+
+.page-title {
+  font-size: 24px;
   font-weight: 600;
-  font-size: 22px;
-  margin-bottom: 0;
-  margin-top: 0;
-  letter-spacing: 1px;
+  margin-bottom: 20px;
+  text-align: center;
 }
-.main-controls {
+
+/* 主布局 */
+.main-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(350px, 1.2fr);
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 左右面板 */
+.left-panel,
+.right-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
-.selected-tags-grid {
-  border: 1px solid var(--n-divider-color);
-  border-radius: var(--n-border-radius);
-  overflow: hidden;
+
+/* 卡片样式 */
+.control-card,
+.result-card {
+  width: 100%;
 }
-.selected-tag-item {
-  display: grid;
-  grid-template-columns: minmax(140px, 1.5fr) 110px 110px 110px 70px;
-  align-items: center;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--n-divider-color);
-}
-.selected-tag-item:last-child {
-  border-bottom: none;
-}
-.selected-tag-item.header {
-  font-weight: 500;
-  background-color: var(--n-action-color);
-  color: var(--n-text-color-2);
-  font-size: 12px;
-  padding: 4px 8px;
-}
-.tag-name-col,
-.tag-weight-col,
-.tag-bracket-col,
-.tag-nesting-col,
-.tag-actions-col {
-  padding: 0 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-}
-.category-header-grid {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--n-text-color-2);
-  margin-bottom: 8px;
-}
-.tag-list-grid {
+
+/* 输入组样式 */
+.input-group {
   margin-bottom: 12px;
 }
-.tag-item-card {
-  border: 1px solid var(--n-border-color);
-  border-radius: 4px;
-  padding: 8px 12px;
-  background-color: var(--n-color);
-  cursor: pointer;
-  min-width: 90px;
-  text-align: center;
-  transition: box-shadow 0.2s, border-color 0.2s;
+
+.input-label {
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--n-text-color-2);
 }
-.tag-item-card.tag-item-selected {
-  border-color: var(--n-primary-color-pressed);
-  box-shadow: 0 0 0 1px var(--n-primary-color-pressed);
-  background-color: var(--n-item-color-active-hover);
+
+.full-width {
+  width: 100%;
 }
-.tag-card-body .tag-name {
-  font-size: 13px;
+
+/* 按钮样式 */
+.main-action-button {
+  width: 100%;
+}
+
+.action-buttons {
+  margin-top: 10px;
+}
+
+/* 分组和分类样式 */
+.group-header {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 12px 0 8px 0;
+  color: var(--n-text-color);
+}
+
+.category-header {
+  font-size: 14px;
   font-weight: 500;
-  color: var(--n-text-color-1);
-  margin-bottom: 2px;
-  word-break: break-word;
+  margin: 10px 0 6px 8px;
+  color: var(--n-text-color-2);
 }
-.tag-card-body .tag-keyword {
-  font-size: 11px;
+
+/* 标签列表样式 */
+.tag-list-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0 8px 8px;
+}
+
+.tag-item-wrapper {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.tag-item {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tag-item-wrapper:hover {
+  transform: translateY(-2px);
+}
+
+/* 选中标签表格样式 */
+.selected-tags-container {
+  width: 100%;
+}
+
+.selected-tags-header {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 0.8fr 0.8fr 0.8fr 40px;
+  gap: 8px;
+  padding: 8px;
+  background-color: var(--n-color-table-header);
+  border-radius: 4px 4px 0 0;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.selected-tag-item {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 0.8fr 0.8fr 0.8fr 40px;
+  gap: 8px;
+  padding: 8px;
+  align-items: center;
+  border-bottom: 1px solid var(--n-divider-color);
+}
+
+.tag-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag-keyword {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--n-text-color-2);
+  font-size: 0.9em;
+}
+
+/* 空状态 */
+.empty-state {
+  padding: 40px 0;
+  text-align: center;
+}
+
+.empty-history {
+  padding: 20px 0;
+  text-align: center;
   color: var(--n-text-color-3);
-  word-break: break-word;
-  min-height: 15px;
 }
-.tag-keyword-selected {
-  font-size: 11px;
+
+/* 历史记录项 */
+.history-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--n-divider-color);
+  transition: background-color 0.2s;
+}
+
+.history-item:hover {
+  background-color: var(--n-color-hover);
+}
+
+.history-text {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 批量操作按钮 */
+.bulk-actions {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--n-divider-color);
+}
+
+/* 结果操作 */
+.result-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.copy-button {
+  min-width: 150px;
+}
+
+/* 高级选项 */
+.advanced-option {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.option-label {
+  min-width: 80px;
+  font-size: 14px;
+}
+
+/* 保存设置按钮 */
+.save-settings {
+  margin-top: 16px;
+  text-align: right;
+}
+
+/* 标签计数 */
+.tag-count {
+  font-size: 14px;
+  color: var(--n-text-color-2);
+}
+
+/* 加载更多容器 */
+.load-more-container {
+  text-align: center;
+  margin: 16px 0;
+}
+
+/* 新增的样式 */
+.tag-keyword-tooltip {
+  font-size: 12px;
   color: var(--n-text-color-3);
   margin-top: 2px;
-  word-break: break-all;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
 }
 </style> 

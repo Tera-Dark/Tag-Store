@@ -26,13 +26,30 @@ const libraryStore = useLibraryStore();
 const tagStore = useTagStore();
 const settingsStore = useSettingsStore();
 
+// 添加自定义防抖函数
+function debounce(fn: Function, delay: number) {
+  let timer: number | null = null;
+  return function(...args: any[]) {
+    if (timer) clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      fn(...args);
+      timer = null;
+    }, delay);
+  };
+}
+
 // 搜索相关状态
 const searchValue = ref(tagStore.searchTerm);
+
+// 处理搜索输入（添加防抖）
+const debouncedSearch = debounce((value: string) => {
+  tagStore.updateSearchTerm(value);
+}, 300); // 300ms防抖延迟
 
 // 处理搜索输入
 const handleSearchInput = (value: string) => {
   searchValue.value = value;
-  tagStore.updateSearchTerm(value);
+  debouncedSearch(value);
 };
 
 // 清除搜索

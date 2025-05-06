@@ -1,8 +1,14 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { Group, Category, Tag, TagStoreTemplate, TemplateGroupData, TemplateCategoryData, TemplateTagData } from '../types/data';
 import * as StorageService from '../services/StorageService'; // Import our service
 import { db } from '../services/TagDatabase'; // Import db instance directly for transaction usage
+
+// 定义搜索索引项类型
+interface SearchIndexItem {
+  id: string;
+  searchText: string; // 预处理的搜索文本
+}
 
 export const useTagStore = defineStore('tagStore', () => {
   // --- State ---
@@ -19,6 +25,9 @@ export const useTagStore = defineStore('tagStore', () => {
   const filterGroupId = ref<string | null>(null); // Example: filter by group
   const filterCategoryId = ref<string | null>(null); // Example: filter by category
 
+  // 搜索索引缓存
+  const searchIndexCache = ref<SearchIndexItem[]>([]);
+  
   // --- Helper Functions (Defined First) ---
   const _handleError = (error: any, message: string) => {
     console.error(`${message}:`, error);
@@ -37,6 +46,31 @@ export const useTagStore = defineStore('tagStore', () => {
     filterGroupId.value = null;
     filterCategoryId.value = null;
   };
+
+  // 更新搜索索引缓存
+  const updateSearchIndexCache = () => {
+    // 预处理标签数据，创建搜索索引
+    searchIndexCache.value = tags.value.map(tag => {
+      // 将所有可搜索字段连接为一个字符串，并转换为小写
+      const searchText = [
+        tag.name,
+        tag.keyword || '',
+        ...(tag.subtitles || [])
+      ].join(' ').toLowerCase();
+      
+      return {
+        id: tag.id,
+        searchText
+      };
+    });
+    
+    console.log(`Search index cache updated for ${searchIndexCache.value.length} tags.`);
+  };
+
+  // 监听标签数组变化，更新搜索索引
+  watch(() => tags.value, () => {
+    updateSearchIndexCache();
+  }, { deep: true });
 
   // --- Actions (Define core actions like load before others use them) ---
 
@@ -78,7 +112,10 @@ export const useTagStore = defineStore('tagStore', () => {
           const categoryIds = categories.value.map(c => c.id);
           const loadedTags = await StorageService.getTagsByCategoryIds(categoryIds);
           tags.value = loadedTags;
-           console.log(`Loaded ${tags.value.length} tags.`);
+          console.log(`Loaded ${tags.value.length} tags.`);
+          
+          // 数据加载后更新搜索索引缓存
+          updateSearchIndexCache();
         } else {
            tags.value = []; 
            console.log("No categories found, tags set to empty.");
@@ -446,14 +483,42 @@ export const useTagStore = defineStore('tagStore', () => {
       return tags.value.filter(t => categoryIdsInGroup.includes(t.categoryId));
   });
   const filteredTags = computed(() => {
-    let result = [...tags.value]; 
-    if (filterGroupId.value) { const categoryIdsInGroup = categories.value.filter(c => c.groupId === filterGroupId.value).map(c => c.id); result = result.filter(t => categoryIdsInGroup.includes(t.categoryId)); }
-    if (filterCategoryId.value && (!filterGroupId.value || categories.value.find(c => c.id === filterCategoryId.value)?.groupId === filterGroupId.value) ) { result = result.filter(t => t.categoryId === filterCategoryId.value); }
-    if (searchTerm.value.trim()) {
-      const lowerSearchTerm = searchTerm.value.trim().toLowerCase();
-      result = result.filter((tag) => (tag.name.toLowerCase().includes(lowerSearchTerm) || tag.subtitles?.some((sub) => sub.toLowerCase().includes(lowerSearchTerm)) || tag.keyword?.toLowerCase().includes(lowerSearchTerm)));
+    // 优化：一次性创建过滤集合，避免多次遍历
+    const groupFilter = filterGroupId.value ? new Set(
+      categories.value
+        .filter(c => c.groupId === filterGroupId.value)
+        .map(c => c.id)
+    ) : null;
+    
+    const categoryFilter = filterCategoryId.value || null;
+    const searchTermValue = searchTerm.value.trim();
+    const searchFilter = searchTermValue ? searchTermValue.toLowerCase() : null;
+    
+    // 如果有搜索条件，先使用索引缓存快速筛选
+    let filteredIds: Set<string> | null = null;
+    if (searchFilter) {
+      filteredIds = new Set(
+        searchIndexCache.value
+          .filter(item => item.searchText.includes(searchFilter))
+          .map(item => item.id)
+      );
     }
-    return result;
+    
+    // 避免不必要的数组复制，直接过滤原数组
+    return tags.value.filter(tag => {
+      // 检查分组过滤
+      if (groupFilter && !groupFilter.has(tag.categoryId)) return false;
+      
+      // 检查分类过滤
+      if (categoryFilter && tag.categoryId !== categoryFilter) return false;
+      
+      // 使用索引缓存进行搜索过滤
+      if (filteredIds) {
+        return filteredIds.has(tag.id);
+      }
+      
+      return true;
+    });
   });
   const hierarchyData = computed(() => {
       const categoryMap = new Map<string, Category & { tags: Tag[] }>();
@@ -475,5 +540,7 @@ export const useTagStore = defineStore('tagStore', () => {
     getGroups, getCategories, getTags, getGroupById, getCategoryById, getTagById, getCategoriesByGroupId, getTagsByCategoryId, getTagsByGroupId, filteredTags, hierarchyData, 
     // Actions
     loadDataForLibrary, clearLocalState, addGroup, updateGroup, deleteGroup, addCategory, updateCategory, deleteCategory, addTag, updateTag, deleteTag, batchDeleteTags, batchMoveTags, importData, exportLibraryData, updateSearchTerm, setFilter, 
+    // 暴露更新搜索索引方法，以便必要时手动更新
+    updateSearchIndexCache,
   };
 }); 
