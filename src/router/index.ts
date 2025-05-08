@@ -11,6 +11,7 @@ import DashboardView from '../views/DashboardView.vue'; // Import Dashboard view
 import TagDrawerView from '../views/tools/TagDrawerView.vue';
 import WeightGeneratorView from '../views/tools/WeightGeneratorView.vue'; // 导入权重添加器工具
 import TagShoppingCartView from '../views/tools/TagShoppingCartView.vue'; // Import new tool view
+import AiExpandView from '../components/ai-expand/AiExpandView.vue'; // 导入AI扩写工具
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -49,6 +50,12 @@ const routes: Array<RouteRecordRaw> = [
     path: '/toolbox/tag-cart',
     name: 'TagShoppingCartTool',
     component: TagShoppingCartView,
+  },
+  // 添加AI扩写工具路由
+  {
+    path: '/toolbox/ai-expand',
+    name: 'AiExpandTool',
+    component: AiExpandView,
   },
   {
     path: '/about', // Add about route

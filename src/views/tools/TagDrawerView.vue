@@ -8,19 +8,15 @@ import {
     NButton, 
     NSpace, 
     NIcon,
-    NDivider,
     NCheckbox,
     NRadioGroup,
     NRadio,
     useMessage,
     NModal,
     NPopconfirm,
-    NCollapse,
-    NCollapseItem,
     NCard,
     NScrollbar,
     NTag,
-    NSpin,
     NEmpty,
     NTooltip
 } from 'naive-ui';
@@ -40,15 +36,15 @@ import { useTagStore } from '../../stores/tagStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { Tag, Group, Category, DrawHistoryEntry, HistorySettings, PresetSettings } from '../../types/data';
 import { useRouter } from 'vue-router';
-import { safeCompare, filterValidTags } from '../../utils/sortHelpers';
-import { useErrorHandler, ErrorType as ErrorServiceType } from '../../services/ErrorService';
+import { filterValidTags } from '../../utils/sortHelpers';
+import { useErrorHandler } from '../../services/ErrorService';
 import _ from 'lodash';
 
 const tagStore = useTagStore();
 const message = useMessage();
 const router = useRouter();
 const settingsStore = useSettingsStore();
-const { handleError, ErrorType } = useErrorHandler();
+const { handleError } = useErrorHandler();
 
 // --- 基本组件状态 ---
 const selectedNodeKeys = ref<string[]>([]);
@@ -88,9 +84,6 @@ const historyItems = ref<DrawHistoryEntry[]>([]);
 
 // --- 动画控制 ---
 const showResults = ref(false);
-
-// --- 文本溢出检测 ---
-const textTruncationState = ref<Record<string, Record<string, boolean>>>({});
 
 // --- 计算属性 ---
 const treeData = computed(() => {
@@ -379,7 +372,7 @@ const drawTags = async () => {
         
         showResults.value = true;
     } catch (error) {
-        handleError(error, '抽取标签', ErrorServiceType.DATA);
+        handleError(error, '抽取标签');
         message.error('抽取标签失败');
     } finally {
         isDrawing.value = false;
@@ -452,7 +445,7 @@ const redrawUnlockedTags = async () => {
         }
 
     } catch (error) {
-        handleError(error, '重新抽取标签', ErrorServiceType.DATA);
+        handleError(error, '重新抽取标签');
         message.error('Failed to redraw tags');
     } finally {
         isDrawing.value = false;
@@ -778,24 +771,6 @@ watch([() => settingsStore.settings.bracketType, () => settingsStore.settings.we
     // Optionally trigger redraw or update display if needed
     // Example: redrawTags(false);
 }, { deep: true });
-
-// 检查文本是否溢出
-const isTextTruncated = (tagId: string, field: 'name' | 'subtitle' | 'keyword'): boolean => {
-  return false; // 不再使用，由DOM直接处理
-};
-
-// 当结果变化时，检测文本溢出状态
-watch(() => drawnTags.value, () => {
-  // 下一个渲染周期检测溢出
-  nextTick(() => {
-    checkForTruncatedText();
-  });
-}, { deep: true });
-
-// 检测文本是否溢出并更新状态
-const checkTextTruncation = () => {
-  // 不再使用，由DOM直接处理
-};
 
 </script>
 

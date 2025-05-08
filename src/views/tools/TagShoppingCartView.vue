@@ -1,40 +1,32 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, h } from 'vue';
 import { 
-    NPageHeader, 
     NCard, 
     NIcon, 
     NButton, 
     NSpace, 
     NEmpty, 
-    NDivider,
     NScrollbar,
     useMessage,
-    NTreeSelect,
     NSelect,
-    NSpin,
     NButtonGroup,
-    NMenu,
     NTag,
-    NTooltip
 } from 'naive-ui';
-import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, StarOutline as StarIconOutline, Star as StarIconFilled, AddCircleOutline as AddIcon, PricetagsOutline as CategoryIcon, FolderOpenOutline as GroupIcon, RemoveCircleOutline as RemoveIcon, ArrowBackOutline as ArrowBackIcon, ListOutline as ListIcon } from '@vicons/ionicons5';
+import { CopyOutline as CopyIcon, CloseCircleOutline as ClearIcon, Star as StarIconFilled, AddCircleOutline as AddIcon, PricetagsOutline as CategoryIcon, FolderOpenOutline as GroupIcon, RemoveCircleOutline as RemoveIcon, ArrowBackOutline as ArrowBackIcon, ListOutline as ListIcon } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import type { Tag, Group, Category } from '../../types/data';
 import { useRouter } from 'vue-router';
 import _ from 'lodash';
 import { safeCompare, filterValidTags } from '../../utils/sortHelpers';
-import { useErrorHandler, ErrorType as ErrorServiceType } from '../../services/ErrorService';
 import TagShoppingCartCard from '../../components/tools/TagShoppingCartCard.vue';
 import CategoryNavMenu from '../../components/tools/CategoryNavMenu.vue';
 import VirtualTagList from '../../components/global/VirtualTagList.vue';
+import { performAdvancedSearch } from '../../utils/searchHelpers';
+import { debounce } from '../../utils/performanceHelpers';
 
 const tagStore = useTagStore();
 const router = useRouter();
 const message = useMessage();
-const settingsStore = useSettingsStore();
-const { handleError } = useErrorHandler();
 
 // --- Constants ---
 const FAVORITES_KEY = '__FAVORITES__';
@@ -85,11 +77,6 @@ const sortedSelectedTags = computed(() => {
 
 // --- Computed Properties ---
 
-// Computed style for action bar
-const actionBarStyle = computed(() => ({
-  left: settingsStore.isSidebarCollapsed ? '64px' : '240px' 
-}));
-
 // Options for the sidebar menu, including Favorites
 const categoryMenuOptions = computed(() => {
     // Find groups and their categories from the store
@@ -138,41 +125,34 @@ const favoritedTags = computed((): Tag[] => {
 
 // Tags to show (Simplified: handles search, favorites, or selected category)
 const currentTagsToShow = computed((): Tag[] => {
-    const searchTerm = tagSearchTerm.value.toLowerCase().trim();
-    
-    console.log('当前选择的分类ID：', selectedCategoryId.value);
-    console.log('标签总数：', tagStore.tags.length);
+  const searchTerm = tagSearchTerm.value.toLowerCase().trim();
+  
+  // --- Global Search Logic ---
+  if (searchTerm) {
+    // 使用高级搜索工具，不需要预建索引
+    return performAdvancedSearch(filterValidTags(tagStore.tags), searchTerm);
+  }
 
-    // --- Global Search Logic ---
-    if (searchTerm) {
-        const filteredTags = filterValidTags(tagStore.tags.filter(tag => 
-            tag.name?.toLowerCase().includes(searchTerm) || 
-            (tag.keyword && tag.keyword.toLowerCase().includes(searchTerm))
-        ));
-        return filteredTags.sort(safeCompare);
-    }
+  // --- All Tags option ---
+  if (selectedCategoryId.value === ALL_TAGS_KEY) {
+    const validTags = filterValidTags(tagStore.tags);
+    return validTags.sort(safeCompare);
+  }
 
-    // --- All Tags option ---
-    if (selectedCategoryId.value === ALL_TAGS_KEY) {
-        console.log('显示所有分类标签，标签总数：', tagStore.tags.length);
-        const validTags = filterValidTags(tagStore.tags);
-        return validTags.sort(safeCompare);
-    }
+  // --- Favorite/Category Logic (Only if search term is empty) ---
+  if (selectedCategoryId.value === FAVORITES_KEY) {
+    const validFavoriteTags = filterValidTags(favoritedTags.value);
+    return validFavoriteTags.sort(safeCompare); // Sort favorites
+  }
+  
+  if (selectedCategoryId.value && !selectedCategoryId.value.startsWith('group-')) {
+     // Valid category selected
+     const filteredTags = filterValidTags(tagStore.tags.filter(tag => tag.categoryId === selectedCategoryId.value));
+     return filteredTags.sort(safeCompare); // Sort category tags
+  }
 
-    // --- Favorite/Category Logic (Only if search term is empty) ---
-    if (selectedCategoryId.value === FAVORITES_KEY) {
-        const validFavoriteTags = filterValidTags(favoritedTags.value);
-        return validFavoriteTags.sort(safeCompare); // Sort favorites
-    }
-    
-    if (selectedCategoryId.value && !selectedCategoryId.value.startsWith('group-')) {
-         // Valid category selected
-         const filteredTags = filterValidTags(tagStore.tags.filter(tag => tag.categoryId === selectedCategoryId.value));
-         return filteredTags.sort(safeCompare); // Sort category tags
-    }
-
-    // Otherwise (no selection, group selected, etc.), show nothing
-    return []; 
+  // Otherwise (no selection, group selected, etc.), show nothing
+  return []; 
 });
 
 // --- New Computed Property for Grouped Display ---
@@ -331,7 +311,7 @@ onMounted(() => {
     // 移除这里的默认选择，全部由 watch 处理
     
     // 添加滚动加载
-    const handleScroll = _.debounce((e) => {
+    const handleScroll = _.debounce(() => {
         const scrollbar = document.querySelector('.tags-list-card .n-scrollbar');
         if (!scrollbar || isLoadingMoreTags.value || !hasMoreTags.value) return;
         
@@ -498,14 +478,18 @@ watch([tagSearchTerm, selectedCategoryId], () => {
     currentPage.value = 1;
 }, { immediate: true });
 
-// 更新购物车排序方式
-const updateCartSortMode = (mode: 'category' | 'alpha' | 'added') => {
-  cartSortMode.value = mode;
-};
+// 添加防抖的搜索处理函数
+const searchInput = ref(tagSearchTerm.value);
 
-// 更新购物车显示模式
-const toggleCartDisplayMode = () => {
-  cartDisplayMode.value = cartDisplayMode.value === 'grouped' ? 'flat' : 'grouped';
+// 使用防抖优化搜索性能
+const debouncedSearch = debounce((value: string) => {
+  tagSearchTerm.value = value;
+}, 300);
+
+// 处理搜索输入
+const handleSearchInput = (value: string) => {
+  searchInput.value = value;
+  debouncedSearch(value);
 };
 
 </script>
@@ -549,18 +533,20 @@ const toggleCartDisplayMode = () => {
           <!-- 搜索框 -->
           <div class="tags-search-container">
             <n-input 
-              v-model:value="tagSearchTerm" 
+              v-model:value="searchInput" 
               placeholder="搜索标签名或关键词..." 
               clearable
               class="search-input"
+              @update:value="handleSearchInput"
             />
           </div>
           
-          <!-- 虚拟滚动列表 -->
+          <!-- 添加n-scrollbar包裹虚拟滚动列表 -->
+          <n-scrollbar style="height: calc(100vh - 230px); min-height: 300px;" class="tags-scrollbar">
           <virtual-tag-list
             :tags="currentTagsToShow"
             :page-size="pageSize"
-            container-selector=".tags-list-card .n-scrollbar"
+              container-selector=".tags-scrollbar"
             @select="toggleTagInCart"
             @load-more="loadMoreTags"
           >
@@ -584,11 +570,13 @@ const toggleCartDisplayMode = () => {
                 @click="loadMoreTags" 
                 :loading="loading"
                 :disabled="loading"
+                  class="load-more-button"
               >
                 {{ loading ? '加载中...' : `加载更多 (${paginatedTags.length}/${currentTagsToShow.length})` }}
               </n-button>
             </template>
           </virtual-tag-list>
+          </n-scrollbar>
         </n-card>
       </div>
       
@@ -873,7 +861,7 @@ const toggleCartDisplayMode = () => {
 /* 标签网格 */
 .tags-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
   padding: 8px 4px;
 }
@@ -1066,6 +1054,11 @@ const toggleCartDisplayMode = () => {
   padding: 8px;
 }
 
+.load-more-button {
+  margin: 10px auto;
+  display: block;
+}
+
 .tags-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: var(--n-scrollbar-color) transparent;
@@ -1100,6 +1093,10 @@ const toggleCartDisplayMode = () => {
   .main-layout {
     grid-template-columns: 200px minmax(280px, 1fr) minmax(350px, 1fr);
   }
+  
+  .tags-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  }
 }
 
 @media (max-width: 1100px) {
@@ -1109,7 +1106,7 @@ const toggleCartDisplayMode = () => {
   }
   
   .tags-grid {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
   
   .cart-item-card {
@@ -1122,6 +1119,10 @@ const toggleCartDisplayMode = () => {
   .main-layout {
     grid-template-columns: 160px minmax(250px, 1fr) minmax(250px, 1fr);
     gap: 8px;
+  }
+  
+  .tags-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   }
 }
 

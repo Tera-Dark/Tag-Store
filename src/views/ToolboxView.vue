@@ -6,13 +6,15 @@ import {
     NGrid, // Use Grid for layout
     NGi,   // Grid item
     NThing, // To structure card content
-    NAvatar
+    NAvatar, 
+    NDivider
 } from 'naive-ui';
 import { useRouter } from 'vue-router';
 import { 
     ShuffleOutline as DrawerIcon,
     ScaleOutline as WeightIcon, // 添加权重图标
-    CartOutline as CartIcon // Add icon for shopping cart
+    CartOutline as CartIcon, // Add icon for shopping cart
+    TextOutline as ExpandIcon // 添加AI扩写图标
 } from '@vicons/ionicons5';
 
 const router = useRouter();
@@ -21,13 +23,20 @@ const handleBack = () => {
   router.push('/');
 };
 
-// Updated tools array with path
+// Reordered tools array to put AI Expand first
 const tools = [
+    // AI扩写工具移到首位
+    {
+        title: 'AI扩写',
+        description: '使用AI模型扩展和丰富文本内容，支持多种AI服务商',
+        icon: ExpandIcon,
+        path: '/toolbox/ai-expand'
+    },
     {
         title: '标签抽取器',
         description: '从当前库中随机抽取标签组合，激发创作灵感',
         icon: DrawerIcon,
-        path: '/toolbox/tag-drawer' // Add navigation path
+        path: '/toolbox/tag-drawer'
     },
     {
         title: '权重添加器',
@@ -35,7 +44,6 @@ const tools = [
         icon: WeightIcon,
         path: '/toolbox/weight-generator'
     },
-    // Add Tag Shopping Cart tool
     {
         title: '标签购物车',
         description: '通过分类细分，组合挑选标签，构建提示词',

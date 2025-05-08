@@ -27,4 +27,31 @@ body {
   flex-direction: column;
 }
 
+/* 为所有Naive UI按钮添加动画效果 */
+.n-button {
+  transition: background-color 0.3s, color 0.3s, transform 0.2s, box-shadow 0.2s, border-color 0.3s !important;
+}
+
+.n-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.n-button:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.n-button--primary-type:hover {
+  box-shadow: 0 2px 12px rgba(63, 163, 109, 0.25);
+}
+
+.n-button-icon {
+  transition: transform 0.2s;
+}
+
+.n-button:hover .n-button-icon {
+  transform: scale(1.1);
+}
+
 /* Add other global styles or imports here */ 

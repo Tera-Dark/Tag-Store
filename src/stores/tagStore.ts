@@ -3,12 +3,10 @@ import { ref, computed, watch } from 'vue';
 import type { Group, Category, Tag, TagStoreTemplate, TemplateGroupData, TemplateCategoryData, TemplateTagData } from '../types/data';
 import * as StorageService from '../services/StorageService'; // Import our service
 import { db } from '../services/TagDatabase'; // Import db instance directly for transaction usage
-
-// 定义搜索索引项类型
-interface SearchIndexItem {
-  id: string;
-  searchText: string; // 预处理的搜索文本
-}
+import type { SearchIndexItem } from '../utils/searchHelpers';
+import { createSearchIndex } from '../utils/searchHelpers'; // Removed filterBySearchTerm, performAdvancedSearch
+import { debounce } from '../utils/performanceHelpers';
+import { tagIndexService } from '../services/TagIndexService';
 
 export const useTagStore = defineStore('tagStore', () => {
   // --- State ---
@@ -25,7 +23,7 @@ export const useTagStore = defineStore('tagStore', () => {
   const filterGroupId = ref<string | null>(null); // Example: filter by group
   const filterCategoryId = ref<string | null>(null); // Example: filter by category
 
-  // 搜索索引缓存
+  // 搜索索引缓存 (仍然保留，但主要使用TagIndexService)
   const searchIndexCache = ref<SearchIndexItem[]>([]);
   
   // --- Helper Functions (Defined First) ---
@@ -47,29 +45,21 @@ export const useTagStore = defineStore('tagStore', () => {
     filterCategoryId.value = null;
   };
 
-  // 更新搜索索引缓存
+  // 更新搜索索引缓存 - 同时更新TagIndexService
   const updateSearchIndexCache = () => {
-    // 预处理标签数据，创建搜索索引
-    searchIndexCache.value = tags.value.map(tag => {
-      // 将所有可搜索字段连接为一个字符串，并转换为小写
-      const searchText = [
-        tag.name,
-        tag.keyword || '',
-        ...(tag.subtitles || [])
-      ].join(' ').toLowerCase();
-      
-      return {
-        id: tag.id,
-        searchText
-      };
-    });
-    
+    searchIndexCache.value = createSearchIndex(tags.value);
+    // 同时更新TagIndexService的索引
+    tagIndexService.updateIndex(tags.value);
     console.log(`Search index cache updated for ${searchIndexCache.value.length} tags.`);
   };
 
+  // 防抖优化的索引更新函数
+  const debouncedUpdateIndex = debounce(updateSearchIndexCache, 500);
+
   // 监听标签数组变化，更新搜索索引
   watch(() => tags.value, () => {
-    updateSearchIndexCache();
+    // 使用防抖优化，避免频繁更新索引
+    debouncedUpdateIndex();
   }, { deep: true });
 
   // --- Actions (Define core actions like load before others use them) ---
@@ -483,7 +473,7 @@ export const useTagStore = defineStore('tagStore', () => {
       return tags.value.filter(t => categoryIdsInGroup.includes(t.categoryId));
   });
   const filteredTags = computed(() => {
-    // 优化：一次性创建过滤集合，避免多次遍历
+    // 一次性创建过滤集合，避免多次遍历
     const groupFilter = filterGroupId.value ? new Set(
       categories.value
         .filter(c => c.groupId === filterGroupId.value)
@@ -492,33 +482,29 @@ export const useTagStore = defineStore('tagStore', () => {
     
     const categoryFilter = filterCategoryId.value || null;
     const searchTermValue = searchTerm.value.trim();
-    const searchFilter = searchTermValue ? searchTermValue.toLowerCase() : null;
     
-    // 如果有搜索条件，先使用索引缓存快速筛选
-    let filteredIds: Set<string> | null = null;
-    if (searchFilter) {
-      filteredIds = new Set(
-        searchIndexCache.value
-          .filter(item => item.searchText.includes(searchFilter))
-          .map(item => item.id)
-      );
+    // 使用TagIndexService进行高效搜索
+    // 1. 先过滤出当前分类/分组的标签
+    let baseFilteredTags = tags.value;
+    
+    if (groupFilter || categoryFilter) {
+      baseFilteredTags = tags.value.filter(tag => {
+        // 检查分组过滤
+        if (groupFilter && !groupFilter.has(tag.categoryId)) return false;
+        
+        // 检查分类过滤
+        if (categoryFilter && tag.categoryId !== categoryFilter) return false;
+        
+        return true;
+      });
     }
     
-    // 避免不必要的数组复制，直接过滤原数组
-    return tags.value.filter(tag => {
-      // 检查分组过滤
-      if (groupFilter && !groupFilter.has(tag.categoryId)) return false;
-      
-      // 检查分类过滤
-      if (categoryFilter && tag.categoryId !== categoryFilter) return false;
-      
-      // 使用索引缓存进行搜索过滤
-      if (filteredIds) {
-        return filteredIds.has(tag.id);
-      }
-      
-      return true;
-    });
+    // 2. 再应用搜索词过滤
+    if (searchTermValue) {
+      return tagIndexService.search(baseFilteredTags, searchTermValue);
+    }
+    
+    return baseFilteredTags;
   });
   const hierarchyData = computed(() => {
       const categoryMap = new Map<string, Category & { tags: Tag[] }>();

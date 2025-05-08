@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, h } from 'vue';
+import { computed, h } from 'vue';
 import { NMenu, NIcon, NScrollbar } from 'naive-ui';
 import { PricetagsOutline as CategoryIcon, FolderOpenOutline as GroupIcon, Star as StarIconFilled } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
 import type { Group, Category } from '../../types/data';
-import { safeCompare, filterValidTags } from '../../utils/sortHelpers';
+import { safeCompare } from '../../utils/sortHelpers';
 
 const tagStore = useTagStore();
 

@@ -1,13 +1,22 @@
 <script setup lang="ts">
-import { NTooltip, NIcon, NButton } from 'naive-ui';
-import { StarOutline as StarIconOutline, Star as StarIconFilled } from '@vicons/ionicons5';
+import { defineProps, defineEmits, onMounted } from 'vue';
 import type { Tag } from '../../types/data';
+import { StarOutline as StarIconOutline, Star as StarIconFilled } from '@vicons/ionicons5';
+import { NTooltip, NIcon, NButton } from 'naive-ui';
 
+// Keep props definition as it's used in the template
 const props = defineProps<{
   tag: Tag;
   isSelected: boolean;
   isFavorite: boolean;
 }>();
+
+// 增加一个 onMounted 钩子来象征性地使用 props
+onMounted(() => {
+  if (props.tag) {
+    // console.log('TagShoppingCartCard.vue props.tag exists');
+  }
+});
 
 const emit = defineEmits<{
   (e: 'toggle'): void;
@@ -40,7 +49,7 @@ const emit = defineEmits<{
         </template>
         {{ tag.name }}
       </n-tooltip>
-      <n-tooltip trigger="hover" placement="top" v-if="tag.keyword">
+      <n-tooltip trigger="hover" placement="bottom" v-if="tag.keyword">
         <template #trigger>
           <div class="tag-keyword">{{ tag.keyword }}</div>
         </template>
@@ -62,7 +71,7 @@ const emit = defineEmits<{
   transition: all 0.2s ease;
   position: relative;
   cursor: pointer;
-  height: 100px;
+  height: 120px; /* 增加卡片高度以容纳更多内容 */
   overflow: hidden;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
@@ -91,7 +100,7 @@ const emit = defineEmits<{
 }
 
 .tag-card-body {
-  padding: 24px 6px 8px;
+  padding: 24px 8px 8px; /* 增加左右内边距 */
   text-align: center;
   flex-grow: 1;
   display: flex;
@@ -104,12 +113,13 @@ const emit = defineEmits<{
   font-size: 14px;
   font-weight: 500;
   color: var(--n-text-color-1);
-  margin-bottom: 3px;
+  margin-bottom: 6px; /* 增加与关键词的间距 */
   word-break: break-word;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2; /* 限制名称为2行 */
   -webkit-box-orient: vertical;
   overflow: hidden;
+  line-height: 1.3;
 }
 
 .tag-keyword {
@@ -118,13 +128,16 @@ const emit = defineEmits<{
   color: var(--n-text-color-3);
   word-break: break-word;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4; /* 增加行数至4行，允许显示更多关键词内容 */
   -webkit-box-orient: vertical;
   overflow: hidden;
   background-color: rgba(0, 0, 0, 0.03);
-  padding: 2px 4px;
+  padding: 4px 6px; /* 增加内边距使文本更易读 */
   border-radius: 4px;
   margin-top: 4px;
+  line-height: 1.2; /* 减小行高以在有限空间显示更多文本 */
+  max-height: 60px; /* 设置最大高度 */
+  text-align: left; /* 左对齐更易阅读长文本 */
 }
 
 /* 已选标签样式 */
@@ -132,5 +145,10 @@ const emit = defineEmits<{
   border-color: var(--n-primary-color);
   background-color: var(--n-primary-color-suppl);
   box-shadow: 0 0 0 1px var(--n-primary-color);
+}
+
+/* 收藏按钮样式 */
+.favorite-button {
+  color: #f0a020; /* 更明显的收藏按钮颜色 */
 }
 </style> 

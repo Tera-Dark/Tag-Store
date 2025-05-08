@@ -16,7 +16,6 @@ const emit = defineEmits<{
 
 // 默认值
 const PAGE_SIZE = props.pageSize || 50;
-const LOAD_THRESHOLD = props.loadThreshold || 100;
 
 // 状态
 const displayCount = ref(PAGE_SIZE);

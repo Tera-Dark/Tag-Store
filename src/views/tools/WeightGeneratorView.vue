@@ -6,11 +6,11 @@ import {
     NInput, 
     NButton, 
     NSpace, 
-    NList, 
-    NListItem, 
-    NThing, 
+    // NList, 
+    // NListItem, 
+    // NThing, 
     NIcon,
-    NDivider,
+    // NDivider,
     NCard,
     NCheckbox,
     NCollapse,
@@ -19,26 +19,37 @@ import {
     NEmpty,
     NTreeSelect,
     NTag,
-    useMessage
+    useMessage,
+    // NLayout,
+    // NLayoutSider,
+    // NLayoutContent,
+    // NGrid,
+    // NGridItem,
+    NButtonGroup,
+    NSlider,
+    // NInputGroup,
+    // NTooltip
 } from 'naive-ui';
 import { 
     CopyOutline as CopyIcon,
     SaveOutline as SaveIcon,
     CloseCircleOutline as ClearIcon,
-    ListOutline as ListIcon, 
-    ShuffleOutline as RandomIcon,
+    // ListOutline as ListIcon, 
+    // ShuffleOutline as RandomIcon,
     PricetagsOutline as TagIcon,
-    ArrowBackOutline as ArrowBackIcon
+    ArrowBackOutline as ArrowBackIcon,
+    // GridOutline as GridIcon,
+    // SettingsOutline as SettingsIcon
 } from '@vicons/ionicons5';
 import { useTagStore } from '../../stores/tagStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import { useRouter } from 'vue-router';
 import type { Tag, Group, Category } from '../../types/data';
 import { safeCompare, filterValidTags } from '../../utils/sortHelpers';
-import { useErrorHandler, ErrorType } from '../../services/ErrorService';
-import _ from 'lodash';
 import { performAdvancedSearch } from '../../utils/searchHelpers';
 import { debounce } from '../../utils/performanceHelpers';
+import _ from 'lodash';
+// import VirtualTagList from '../../components/global/VirtualTagList.vue';
+// import CategoryNavMenu from '../../components/tools/CategoryNavMenu.vue';
 
 type TemplateType = 'sd' | 'mj' | 'cn' | 'comfy' | 'custom';
 type TemplateConfig = {
@@ -331,8 +342,6 @@ const finalSelectedCategoryIds = computed((): string[] => {
   return Array.from(finalIds);
 });
 
-const tagsViewMode = ref<'grid' | 'list'>('grid'); // Restore view mode state
-
 // 添加防抖的搜索处理
 const searchInput = ref(searchTerm.value);
 
@@ -447,14 +456,6 @@ const removeTag = (index: number) => {
     delete tagBrackets.value[tag.id];
     // Remove potential stale individual nesting state if bracketNesting ref is kept
     delete bracketNesting.value?.[tag.id]; 
-    // No need to call generatePrompt, watcher handles it
-};
-
-const clearTags = () => {
-    selectedTags.value = [];
-    tagWeights.value = {};
-    tagBrackets.value = {};
-    bracketNesting.value = {}; // Clear individual nesting state if kept
     // No need to call generatePrompt, watcher handles it
 };
 
@@ -707,13 +708,6 @@ const copyToClipboard = () => {
         });
 };
 
-const resetWeights = () => {
-    selectedTags.value.forEach(tag => {
-        tagWeights.value[tag.id] = defaultWeight.value;
-    });
-    generatePrompt();
-};
-
 // --- 生命周期钩子 ---
 onMounted(() => {
     loadSettings();
@@ -817,24 +811,6 @@ const toggleSelectionFromLibrary = (tag: Tag) => {
         addTag(tag);
     }
 };
-
-// 1. 新增 selectedTagsViewMode 控制视图切换，默认 grid
-const selectedTagsViewMode = ref<'grid' | 'list'>('grid');
-
-// 自动应用功能：监听 selectedTags、tagWeights、tagBrackets、bracketNesting 变化自动刷新生成栏
-watch([
-  selectedTags, tagWeights, tagBrackets, bracketNesting
-], () => {
-  // 自动同步：括号为"无"时嵌套层数强制为0，嵌套为 undefined/null/空时强制为0
-  selectedTags.value.forEach(tag => {
-    if (tagBrackets.value[tag.id] === 'none') {
-      bracketNesting.value[tag.id] = 0;
-    } else if (bracketNesting.value[tag.id] === undefined || bracketNesting.value[tag.id] === null) {
-      bracketNesting.value[tag.id] = 0;
-    }
-  });
-  generatePrompt();
-}, { deep: true });
 
 // 计算分页后的标签
 const paginatedTags = computed(() => {
