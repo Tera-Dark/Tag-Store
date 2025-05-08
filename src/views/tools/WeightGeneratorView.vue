@@ -37,6 +37,8 @@ import type { Tag, Group, Category } from '../../types/data';
 import { safeCompare, filterValidTags } from '../../utils/sortHelpers';
 import { useErrorHandler, ErrorType } from '../../services/ErrorService';
 import _ from 'lodash';
+import { performAdvancedSearch } from '../../utils/searchHelpers';
+import { debounce } from '../../utils/performanceHelpers';
 
 type TemplateType = 'sd' | 'mj' | 'cn' | 'comfy' | 'custom';
 type TemplateConfig = {
@@ -331,23 +333,40 @@ const finalSelectedCategoryIds = computed((): string[] => {
 
 const tagsViewMode = ref<'grid' | 'list'>('grid'); // Restore view mode state
 
-// Modify filteredTags to group by Group -> Category
+// 添加防抖的搜索处理
+const searchInput = ref(searchTerm.value);
+
+// 使用防抖优化搜索性能
+const debouncedSearch = debounce((value: string) => {
+  searchTerm.value = value;
+}, 300);
+
+// 处理搜索输入
+const handleSearchInput = (value: string) => {
+  searchInput.value = value;
+  debouncedSearch(value);
+};
+
+// 优化过滤标签的计算属性
 const groupedFilteredTags = computed(() => {
     // 根据finalSelectedCategoryIds和searchTerm直接过滤
-    const baseFilteredTags = filterValidTags(tagStore.tags.filter(t => {
-        // 分类过滤：判断标签的分类ID是否在选定的分类ID列表中
-        const categoryMatch = finalSelectedCategoryIds.value.includes(t.categoryId);
-        
-        // 搜索词过滤
-        const searchMatch = !searchTerm.value || 
-                            t.name.toLowerCase().includes(searchTerm.value.toLowerCase()) || 
-                            t.subtitles?.some(s => s.toLowerCase().includes(searchTerm.value.toLowerCase())) || 
-                            t.keyword?.toLowerCase().includes(searchTerm.value.toLowerCase());
-        
-        return categoryMatch && searchMatch;
-    }));
+    let baseFilteredTags;
+    const searchTermValue = searchTerm.value.trim();
+    
+    if (searchTermValue) {
+        // 使用高级搜索工具进行搜索
+        const allCategoryTags = filterValidTags(tagStore.tags.filter(t => {
+            return finalSelectedCategoryIds.value.includes(t.categoryId);
+        }));
+        baseFilteredTags = performAdvancedSearch(allCategoryTags, searchTermValue);
+    } else {
+        // 没有搜索词，仅按分类过滤
+        baseFilteredTags = filterValidTags(tagStore.tags.filter(t => {
+            return finalSelectedCategoryIds.value.includes(t.categoryId);
+        }));
+    }
 
-    // Grouping logic (similar to TagShoppingCartView)
+    // 分组逻辑保持不变
     const groupMap = new Map<string, { group: Group; categories: Map<string, { category: Category; tags: Tag[] }> }>();
     const categoryLookup = new Map(tagStore.categories.map(cat => [cat.id, cat]));
     const groupLookup = new Map(tagStore.groups.map(grp => [grp.id, grp]));
@@ -370,12 +389,12 @@ const groupedFilteredTags = computed(() => {
         categoryData.tags.push(tag);
     }
 
-    // Sort tags, categories, and groups
+    // 排序逻辑保持不变
     groupMap.forEach(groupData => {
         groupData.categories.forEach(categoryData => {
             categoryData.tags.sort(safeCompare);
         });
-         // Convert categories map to sorted array for the template
+        // Convert categories map to sorted array for the template
         (groupData as any).sortedCategories = Array.from(groupData.categories.values())
             .sort((a, b) => safeCompare(a.category, b.category));
     });
@@ -908,10 +927,11 @@ const clearAllTags = () => {
             <div class="input-group">
               <div class="input-label">搜索标签</div>
               <n-input 
-                v-model:value="searchTerm" 
+                v-model:value="searchInput" 
                 placeholder="输入关键词搜索" 
                 clearable
                 class="full-width"
+                @update:value="handleSearchInput"
               />
             </div>
             
